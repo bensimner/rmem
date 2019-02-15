@@ -29,6 +29,8 @@ open import MachineDefUtils
 open import MachineDefUI
 open MaybeMonad
 
+open import Debug
+
 let slice_of_write w = (w.w_addr, [complete_slice w.w_addr])
 
 let add_read_exclusive_write_slices state (read, writes_and_slices, se_ioids) =
@@ -213,11 +215,26 @@ let flat_ss_remove_old_read_requests _params state tid restarted_ioids discarded
   return <| state with flat_ss_exclusive_reads = exclusive_reads |>
 
 
+let flat_try_fetch _params state tl =
+  let (addr, _) = tl.tl_label in
+  let fp = (addr, 4) in
+  let writes = state.flat_ss_memory_writes in
+  let mrs =
+      match mrs_from_writes fp writes with
+      | Nothing -> failwith "flat try fetch from uninitialized memory"
+      | Just mrs -> mrs
+      end
+  in
+  let tl' : thread_label (Sail_impl_base.address * fetch_kind) (list memory_read_source) 'ts = <| tl with tl_suppl = Just [mrs] |> in
+  return (T_fetch tl', Nothing)
+
+
 let flat_ss_receive_transition params state = function
   | T_propagate_write tl ->            flat_propagate_write params state tl
   | T_Flat_mem_satisfy_read tl ->      flat_satisfy_read params state tl
   | T_Flat_try_commit_store_cond tl -> flat_try_commit_store_cond params state tl
   | T_try_store_excl tl ->             flat_try_store_excl params state tl
+  | T_fetch tl ->                      flat_try_fetch params state tl
   | T_mem_read_request tl ->           fail
   | T_propagate_barrier tl ->          fail
   | T_PLDI11_mem_satisfy_read _ ->     fail
@@ -225,7 +242,6 @@ let flat_ss_receive_transition params state = function
   | T_POP_tm_commit _ ->               fail
   | T_POP_tm_abort _  ->               fail
   | T_TSO_mem_satisfy_read _ ->        fail
-  | T_fetch _ ->                       fail
   | T_Promising_fulfil_promise _  ->   fail
   | T_Promising_propagate_write _ ->   fail
   | T_Promising_mem_satisfy_read _ ->  fail

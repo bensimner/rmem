@@ -89,12 +89,13 @@ let default_model_params =
 
 type initial_state_record =
   <|  isr_params:            model_params;
-      isr_program:           instruction_semantics -> address -> fetch_and_decode_outcome;
+      isr_program:           instruction_semantics -> address -> fetch_and_decode_outcome; (* TODO: remove isr_program *)
       isr_return_addr:       list (thread_id * address);
       isr_thread_ids:        list thread_id;
       isr_register_data:     thread_id -> list (reg_base_name * register_value);
       isr_register_values:   thread_id -> reg_base_name -> register_value;
       isr_first_instruction: thread_id -> maybe address;
+      (* TODO: make a isr_initial_program_memory or something? *)
       isr_memory:            list write;
   |>
 
@@ -276,10 +277,10 @@ let thread_trans_to_trans (s_model : machineStorageSubsystem 'ts 'ss)
           let (write, _, _) = tl.tl_label in
           if check_memory_access s write.w_addr then Nothing
           else Just (T_propagate_write <| tl with tl_suppl = Just (MWO_unmapped_address [write]) |>)
-      | T_fetch tl ->
+      (* | T_fetch tl ->
           let (addr, _) = tl.tl_label in
           let fdo = s.program_memory addr in
-          Just (T_fetch <| tl with tl_suppl = Just fdo |>)
+          Just (T_fetch <| tl with tl_suppl = Just fdo |>) *)
       | _ -> Nothing
       end
       (* if the transition was not handled yet, let storage handle it *)

@@ -1706,9 +1706,8 @@ subsystem when taken *)
 (** NOTE: ALL THE CONSTRUCTORS SHOULD HAVE THE TYPE "thread_label 'l 's" *)
 type thread_sync_label 'ts =
   | T_fetch of thread_label
-      (* bool: the fetch is one out of multiple branches *)
-      (address * fetch_kind)
-      fetch_and_decode_outcome
+      (address * fetch_kind)  (* the address we're fetching *)
+      (list memory_read_source)  (* the value we fetched *)
       'ts
   | T_mem_read_request of thread_label
       (read_request * slices (* the slices we're requesting *)
