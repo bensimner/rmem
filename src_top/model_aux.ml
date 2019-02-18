@@ -835,6 +835,12 @@ let XX_value params = params.t.XX
 
 open MachineDefTypes
 
+let fetch_atomics_assoc =
+  [(Fetch_Atomic, "fetch-atomic");
+   (Fetch_Relaxed, "fetch-relaxed")]
+let fetch_atomics_update params value = {params with ss = {params.ss with model_fetch_type = value}}
+let fetch_atomics_value params = params.ss.model_fetch_type
+
 let model_assoc =
   [((PLDI11_storage_model,  PLDI11_thread_model),           "pldi11");
    ((Flowing_storage_model, POP_thread_model Standard_POP), "flowing");
@@ -981,6 +987,7 @@ let parsers =
     gen_parser pw_assoc pw_update;
     gen_parser promise_first_assoc promise_first_update;
 (*    gen_parser bc_assoc bc_update;*)
+    gen_parser fetch_atomics_assoc fetch_atomics_update;
   ]
 
 let model_strings =
@@ -1001,8 +1008,9 @@ let model_strings =
 (*  (assoc_image coherence_commit_assoc) @*)
   (assoc_image new_coh_assoc) @
   (assoc_image pw_assoc) @
-  (assoc_image promise_first_assoc)
+  (assoc_image promise_first_assoc) @
 (*  (assoc_image bc_assoc) @*)
+  (assoc_image fetch_atomics_assoc)
 
 
 let current_model params =
@@ -1025,6 +1033,7 @@ let current_model params =
     (List.assoc (pw_value params) pw_assoc);
     (List.assoc (promise_first_value params) promise_first_assoc);
 (*    (List.assoc (bc_value params) bc_assoc);*)
+    (List.assoc (fetch_atomics_value params) fetch_atomics_assoc);
   ]
 
 

@@ -1747,7 +1747,7 @@ let pp_t_sync_label ?(graph=false) m t =
       let info =
         sprintf "%s %s%s"
           (pp_address m (Some tc.tc_ioid) a)
-          ("(TODO: pp_mrs)")
+          (pp_mrs_uncoloured m (tc.tc_ioid) mrs)
           begin match m.pp_dwarf_static with
           | Some ds ->
               begin match pp_dwarf_source_file_lines m ds (* pp_actual_line: *) false a with 

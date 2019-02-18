@@ -57,6 +57,7 @@ let default_model_params =
         (*new_coh =     No_new_coherence;*)
         flowing_topology = FTopo_leaf 0;
         promise_first = false;
+        model_fetch_type = Fetch_Atomic;
     |>
   in
 

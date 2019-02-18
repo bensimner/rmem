@@ -1314,11 +1314,16 @@ type flowing_topology =
   | FTopo_leaf of thread_id
   | FTopo_join of list flowing_topology
 
+type fetch_type =  (* Enable/Disable fetching for self-modifying examples *)
+  | Fetch_Atomic  (* TODO: better name *)
+  | Fetch_Relaxed
+
 type ss_params =
   <| ss_model: storage_model;
      ss_sc   : bool; (* behave like SC *)
      pw      : propagate_write_params;
      new_coh : new_coherence_params;
+     model_fetch_type: fetch_type;
 
      (* parameters for Flowing *)
      flowing_topology : flowing_topology;

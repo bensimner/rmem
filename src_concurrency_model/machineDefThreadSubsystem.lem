@@ -2115,8 +2115,14 @@ let create_fdo (a : address) i_sem
     fun mrs ->
         match maybe_all (List.map byte_of_byte_lifted (mrs.mrs_value)) with
         | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mrs.mrs_value) ^ ")")
-        | Just [a0; a1; a2; a3] ->
-            let opcode = opcode_of_bytes a0 a1 a2 a3 in
+        | Just [b0; b1; b2; b3] ->
+            let endianness = E_little_endian in (* TODO: hook this into the arch *)
+            let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
+                match endianness with
+                | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
+                | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
+                end
+            in
             let fdo = i_sem.decode_to_instruction a opcode in
             fdo
         | Just _ -> failwith "satisfy_fetch unexpected number of bytes"

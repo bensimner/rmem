@@ -29,8 +29,6 @@ open import MachineDefUtils
 open import MachineDefUI
 open MaybeMonad
 
-open import Debug
-
 let slice_of_write w = (w.w_addr, [complete_slice w.w_addr])
 
 let add_read_exclusive_write_slices state (read, writes_and_slices, se_ioids) =
@@ -215,9 +213,11 @@ let flat_ss_remove_old_read_requests _params state tid restarted_ioids discarded
   return <| state with flat_ss_exclusive_reads = exclusive_reads |>
 
 
-let flat_try_fetch _params state tl =
+(* TODO: maybe move this to machineDefSystem and make it fake a read?
+    or maybe just implement equivalent for each model storage subsystem *)
+let flat_try_fetch_atomic _params state tl =
   let (addr, _) = tl.tl_label in
-  let fp = (addr, 4) in
+  let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
   let writes = state.flat_ss_memory_writes in
   let mrs =
       match mrs_from_writes fp writes with
@@ -225,9 +225,15 @@ let flat_try_fetch _params state tl =
       | Just mrs -> mrs
       end
   in
-  let tl' : thread_label (Sail_impl_base.address * fetch_kind) (list memory_read_source) 'ts = <| tl with tl_suppl = Just [mrs] |> in
+  let mrss = [mrs] in
+  let tl' = <| tl with tl_suppl = Just mrss |> in
   return (T_fetch tl', Nothing)
 
+let flat_try_fetch params state tl =
+    match params.model_fetch_type with
+    | Fetch_Atomic -> flat_try_fetch_atomic params state tl
+    | Fetch_Relaxed -> failwith "flat try fetch relaxed not implemented"
+    end
 
 let flat_ss_receive_transition params state = function
   | T_propagate_write tl ->            flat_propagate_write params state tl
