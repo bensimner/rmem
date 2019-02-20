@@ -2136,7 +2136,6 @@ let get_fetch_instruction_continuation params
     let fdo =
       match f with
       | Fetched_FDO fdo -> fdo
-      | Decoded fdo -> fdo
       | Fetched_Mem mrs -> get_fdo i_sem.decode_to_instruction addr (mrs.mrs_value)
       end
     in
@@ -3937,7 +3936,6 @@ let initial_fetch_transition_of_thread
     let fdo = 
       match f with
       | Fetched_FDO fdo -> fdo
-      | Decoded fdo -> fdo
       | Fetched_Mem mrs -> get_fdo i_sem.decode_to_instruction addr (mrs.mrs_value)
       end
     in

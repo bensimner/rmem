@@ -917,7 +917,6 @@ type fetch_and_decode_outcome =
 type fetched =
   | Fetched_FDO of fetch_and_decode_outcome  (* for programs without machine code (like litmus tests) *)
   | Fetched_Mem of memory_read_source
-  | Decoded     of fetch_and_decode_outcome  (* maybe store mrs here too? *)
 
 type micro_op_state =
   | MOS_fetch               of maybe fetched
@@ -1665,7 +1664,7 @@ type thread_only_trans =
   | T_footprint_outcome
   | T_actually_satisfy    of memory_value
   | T_init_fetch of address
-  | T_decode of fetch_and_decode_outcome
+  | T_decode of (address * fetched)
   (** not internal transitions: *)
   | T_register_read       of reg_name * register_read_sources * register_value
   | T_register_write      of reg_name * register_value

@@ -1606,6 +1606,17 @@ let pp_t_only_label ?(graph=false) m tl =
   | T_RISCV_atomic_end ->
       ("end atomic memory access of AMO", None)
 
+  | T_init_fetch addr ->
+      let info = (pp_address m (Some ioid) addr) in
+      ("init fetch", Some info)
+  | T_decode (addr, f) ->
+      let info =
+        (match f with
+        | Fetched_FDO fdo -> (pp_fdo ~suppress_opcode:graph m fdo addr)
+        | Fetched_Mem mrs -> (pp_mrs_uncoloured m (ioid) mrs))
+      in
+      ("decode", Some info)
+
 let pp_t_sync_label ?(graph=false) m t =
   match t with
   | T_try_store_excl {tl_suppl = None} -> assert false
@@ -1749,8 +1760,7 @@ let pp_t_sync_label ?(graph=false) m t =
         sprintf "%s %s%s"
           (pp_address m (Some tc.tc_ioid) a)
           (match f with
-           | Fetched_FDO fdo
-           | Decoded     fdo -> (pp_fdo ~suppress_opcode:graph m fdo a)
+           | Fetched_FDO fdo -> (pp_fdo ~suppress_opcode:graph m fdo a)
            | Fetched_Mem mrs -> (pp_mrs_uncoloured m (tc.tc_ioid) mrs))
           begin match m.pp_dwarf_static with
           | Some ds ->
