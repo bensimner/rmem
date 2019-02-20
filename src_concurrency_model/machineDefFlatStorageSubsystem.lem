@@ -68,6 +68,7 @@ let flat_write_memory state write =
 
   <| state with flat_ss_memory_writes = new_mem ++ old_mem;
       flat_ss_old_writes = write :: state.flat_ss_old_writes;
+      flat_ss_fetch_buf  = write :: state.flat_ss_fetch_buf;
   |>
 
 
@@ -216,6 +217,19 @@ let flat_ss_remove_old_read_requests _params state tid restarted_ioids discarded
   in
   return <| state with flat_ss_exclusive_reads = exclusive_reads |>
 
+let get_fdo op2fdo addr mv =
+  match maybe_all (List.map byte_of_byte_lifted mv) with
+  | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mv) ^ ")")
+  | Just [b0; b1; b2; b3] ->
+    let endianness = E_little_endian in (* TODO: hook this into the arch *)
+    let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
+      match endianness with
+      | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
+      | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
+      end
+      in op2fdo addr opcode
+  | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
+  end
 
 (* TODO: maybe move this to machineDefSystem and make it fake a read?
     or maybe just implement equivalent for each model storage subsystem *)
@@ -230,27 +244,42 @@ let flat_try_fetch_atomic _params state tl =
     | Just mrs -> mrs
     end
   in
-  let fdo =
-    match maybe_all (List.map byte_of_byte_lifted (mrs.mrs_value)) with
-    | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mrs.mrs_value) ^ ")")
-    | Just [b0; b1; b2; b3] ->
-      let endianness = E_little_endian in (* TODO: hook this into the arch *)
-      let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
-        match endianness with
-        | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
-        | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
-        end
-      in op2fdo addr opcode
-    | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
-    end
-  in
+  let fdo = get_fdo op2fdo addr (mrs.mrs_value) in
   let tl' = <| tl with tl_suppl = Just fdo |> in
   return (T_fetch tl', Nothing)
+
+(* TODO: check footprint/slices *)
+let write_is_to_addr addr w =
+    w.w_addr = (addr, 4)
+
+let flat_try_fetch_relaxed _params state tl =
+  let addr = tl.tl_label.fr_addr in
+  let op2fdo = tl.tl_label.fr_semf in
+  let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
+  let writes = state.flat_ss_fetch_buf in
+  let flat_mem = state.flat_ss_fetch_mem in
+  let accept_writes = List.filter (write_is_to_addr addr) writes in
+  let mvs =
+    match maybe_all (List.map (fun w -> w.w_value) accept_writes) with
+    | Nothing -> failwith "flat_try_fetch_relaxed write had no value"
+    | Just vs -> vs
+    end
+  in
+  let mvs =
+    match mrs_from_writes fp flat_mem with
+    | Nothing -> mvs
+    | Just mrs -> mrs.mrs_value :: mvs
+    end
+  in
+  let fdos = List.map (get_fdo op2fdo addr) mvs in
+  let tl's = List.map (fun fdo -> <| tl with tl_suppl = Just fdo |>) fdos in
+  (* TODO: return a list of transitions *)
+  return (T_fetch (head tl's), Nothing)
 
 let flat_try_fetch params state tl =
     match params.model_fetch_type with
     | Fetch_Atomic -> flat_try_fetch_atomic params state tl
-    | Fetch_Relaxed -> failwith "flat try fetch relaxed not implemented"
+    | Fetch_Relaxed -> flat_try_fetch_relaxed params state tl
     end
 
 let flat_ss_receive_transition params state = function
