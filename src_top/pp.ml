@@ -1743,12 +1743,15 @@ let pp_t_sync_label ?(graph=false) m t =
       ("propagate barrier to storage", Some info)
 
   | T_fetch {tl_suppl = None} -> assert false
-  | T_fetch {tl_label = tl; tl_suppl = (Some fdo); tl_cont = tc} ->
+  | T_fetch {tl_label = tl; tl_suppl = (Some f); tl_cont = tc} ->
       let a = tl.fr_addr in
       let info =
         sprintf "%s %s%s"
           (pp_address m (Some tc.tc_ioid) a)
-          (pp_fdo ~suppress_opcode:graph m fdo a)
+          (match f with
+           | Fetched_FDO fdo
+           | Decoded     fdo -> (pp_fdo ~suppress_opcode:graph m fdo a)
+           | Fetched_Mem mrs -> (pp_mrs_uncoloured m (tc.tc_ioid) mrs))
           begin match m.pp_dwarf_static with
           | Some ds ->
               begin match pp_dwarf_source_file_lines m ds (* pp_actual_line: *) false a with 

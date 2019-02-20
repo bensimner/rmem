@@ -908,8 +908,19 @@ type outcome_S = outcome_s unit
    we need for the interpreter.
  *)
 
+type fetch_and_decode_outcome =
+  | FDO_success of address * (maybe opcode) * instruction_ast
+  | FDO_address_not_concrete
+  | FDO_illegal_fetch_address
+  | FDO_decode_error of decode_error_t
+
+type fetched =
+  | Fetched_FDO of fetch_and_decode_outcome  (* for programs without machine code (like litmus tests) *)
+  | Fetched_Mem of memory_read_source
+  | Decoded     of fetch_and_decode_outcome  (* maybe store mrs here too? *)
 
 type micro_op_state =
+  | MOS_fetch               of maybe fetched
   | MOS_plain               of outcome_S
   | MOS_pending_mem_read    of (memory_value -> outcome_S)
   | MOS_potential_mem_write of (bool -> outcome_S)
@@ -1195,13 +1206,6 @@ type thread_state =
      (* the part of the state that is unique to each model *)
      thread_substate: thread_substate;
   |>
-
-
-type fetch_and_decode_outcome =
-  | FDO_success of address * (maybe opcode) * instruction_ast
-  | FDO_address_not_concrete
-  | FDO_illegal_fetch_address
-  | FDO_decode_error of decode_error_t
 
 
 (******************** Promising Thread Subsystem *******************)
@@ -1660,6 +1664,8 @@ type thread_only_trans =
   | T_pseudoreg_write     of reg_name * register_value
   | T_footprint_outcome
   | T_actually_satisfy    of memory_value
+  | T_init_fetch of address
+  | T_decode of fetch_and_decode_outcome
   (** not internal transitions: *)
   | T_register_read       of reg_name * register_read_sources * register_value
   | T_register_write      of reg_name * register_value
@@ -1691,6 +1697,8 @@ let show_thread_only_label = function
   | T_pseudoreg_write _ _ -> "T_pseudoreg_write"
   | T_footprint_outcome -> "T_footprint_outcome"
   | T_actually_satisfy _ -> "T_actually_satisfy"
+  | T_init_fetch _ -> "T_init_fetch"
+  | T_decode _ -> "T_decode"
   (** not internal transitions: *)
   | T_register_read _ _ _ -> "T_register_read"
   | T_register_write _ _ -> "T_register write"
@@ -1717,15 +1725,21 @@ subsystem when taken *)
 type fetch_request =
     <| fr_addr : address;
        fr_kind : fetch_kind;
-       fr_semf : address -> opcode -> fetch_and_decode_outcome;
     |>
 
+type cache_maintenance_kind =
+    | CM_DC
+    | CM_IC
 
 (** NOTE: ALL THE CONSTRUCTORS SHOULD HAVE THE TYPE "thread_label 'l 's" *)
 type thread_sync_label 'ts =
   | T_fetch of thread_label
       fetch_request
-      (fetch_and_decode_outcome)  (* the value we fetched *)
+      fetched  (* the value we fetched *)
+      'ts
+  | T_propogate_cache_maintenance of thread_label
+      (cache_maintenance_kind * address)
+      unit
       'ts
   | T_mem_read_request of thread_label
       (read_request * slices (* the slices we're requesting *)
@@ -1793,41 +1807,43 @@ type thread_sync_label 'ts =
       'ts
 
 let tid_of_thread_sync_trans = function
-  | T_fetch tl                      -> tl.tl_cont.tc_tid
-  | T_mem_read_request tl           -> tl.tl_cont.tc_tid
-  | T_propagate_write tl            -> tl.tl_cont.tc_tid
-  | T_propagate_barrier tl          -> tl.tl_cont.tc_tid
-  | T_PLDI11_mem_satisfy_read tl    -> tl.tl_cont.tc_tid
-  | T_try_store_excl tl             -> tl.tl_cont.tc_tid
-  | T_POP_tm_start tl               -> tl.tl_cont.tc_tid
-  | T_POP_tm_commit tl              -> tl.tl_cont.tc_tid
-  | T_POP_tm_abort tl               -> tl.tl_cont.tc_tid
-  | T_Flat_mem_satisfy_read tl      -> tl.tl_cont.tc_tid
-  | T_Flat_try_commit_store_cond tl -> tl.tl_cont.tc_tid
-  | T_TSO_mem_satisfy_read tl       -> tl.tl_cont.tc_tid
-  | T_Promising_fulfil_promise tl   -> tl.tl_cont.tc_tid
-  | T_Promising_propagate_write tl  -> tl.tl_cont.tc_tid
-  | T_Promising_mem_satisfy_read tl -> tl.tl_cont.tc_tid
+  | T_fetch tl                                -> tl.tl_cont.tc_tid
+  | T_propogate_cache_maintenance tl          -> tl.tl_cont.tc_tid
+  | T_mem_read_request tl                     -> tl.tl_cont.tc_tid
+  | T_propagate_write tl                      -> tl.tl_cont.tc_tid
+  | T_propagate_barrier tl                    -> tl.tl_cont.tc_tid
+  | T_PLDI11_mem_satisfy_read tl              -> tl.tl_cont.tc_tid
+  | T_try_store_excl tl                       -> tl.tl_cont.tc_tid
+  | T_POP_tm_start tl                         -> tl.tl_cont.tc_tid
+  | T_POP_tm_commit tl                        -> tl.tl_cont.tc_tid
+  | T_POP_tm_abort tl                         -> tl.tl_cont.tc_tid
+  | T_Flat_mem_satisfy_read tl                -> tl.tl_cont.tc_tid
+  | T_Flat_try_commit_store_cond tl           -> tl.tl_cont.tc_tid
+  | T_TSO_mem_satisfy_read tl                 -> tl.tl_cont.tc_tid
+  | T_Promising_fulfil_promise tl             -> tl.tl_cont.tc_tid
+  | T_Promising_propagate_write tl            -> tl.tl_cont.tc_tid
+  | T_Promising_mem_satisfy_read tl           -> tl.tl_cont.tc_tid
   | T_Promising_propagate_write_nonshared tl  -> tl.tl_cont.tc_tid
   | T_Promising_mem_satisfy_read_nonshared tl -> tl.tl_cont.tc_tid
   end
 
 let ioid_of_thread_sync_trans = function
-  | T_fetch tl                      -> tl.tl_cont.tc_ioid
-  | T_mem_read_request tl           -> tl.tl_cont.tc_ioid
-  | T_propagate_write tl            -> tl.tl_cont.tc_ioid
-  | T_propagate_barrier tl          -> tl.tl_cont.tc_ioid
-  | T_PLDI11_mem_satisfy_read tl    -> tl.tl_cont.tc_ioid
-  | T_try_store_excl tl             -> tl.tl_cont.tc_ioid
-  | T_POP_tm_start tl               -> tl.tl_cont.tc_ioid
-  | T_POP_tm_commit tl              -> tl.tl_cont.tc_ioid
-  | T_POP_tm_abort tl               -> tl.tl_cont.tc_ioid
-  | T_Flat_mem_satisfy_read tl      -> tl.tl_cont.tc_ioid
-  | T_Flat_try_commit_store_cond tl -> tl.tl_cont.tc_ioid
-  | T_TSO_mem_satisfy_read tl       -> tl.tl_cont.tc_ioid
-  | T_Promising_fulfil_promise tl   -> tl.tl_cont.tc_ioid
-  | T_Promising_propagate_write tl  -> tl.tl_cont.tc_ioid
-  | T_Promising_mem_satisfy_read tl -> tl.tl_cont.tc_ioid
+  | T_fetch tl                                -> tl.tl_cont.tc_ioid
+  | T_propogate_cache_maintenance tl          -> tl.tl_cont.tc_ioid
+  | T_mem_read_request tl                     -> tl.tl_cont.tc_ioid
+  | T_propagate_write tl                      -> tl.tl_cont.tc_ioid
+  | T_propagate_barrier tl                    -> tl.tl_cont.tc_ioid
+  | T_PLDI11_mem_satisfy_read tl              -> tl.tl_cont.tc_ioid
+  | T_try_store_excl tl                       -> tl.tl_cont.tc_ioid
+  | T_POP_tm_start tl                         -> tl.tl_cont.tc_ioid
+  | T_POP_tm_commit tl                        -> tl.tl_cont.tc_ioid
+  | T_POP_tm_abort tl                         -> tl.tl_cont.tc_ioid
+  | T_Flat_mem_satisfy_read tl                -> tl.tl_cont.tc_ioid
+  | T_Flat_try_commit_store_cond tl           -> tl.tl_cont.tc_ioid
+  | T_TSO_mem_satisfy_read tl                 -> tl.tl_cont.tc_ioid
+  | T_Promising_fulfil_promise tl             -> tl.tl_cont.tc_ioid
+  | T_Promising_propagate_write tl            -> tl.tl_cont.tc_ioid
+  | T_Promising_mem_satisfy_read tl           -> tl.tl_cont.tc_ioid
   | T_Promising_propagate_write_nonshared tl  -> tl.tl_cont.tc_ioid
   | T_Promising_mem_satisfy_read_nonshared tl -> tl.tl_cont.tc_ioid
   end

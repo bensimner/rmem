@@ -2110,14 +2110,36 @@ let fetch_instruction params
       (id_state', [starting_fetch_exception_inst_instance ioid' (FDE_decode_error de addr) addr])
   end
 
+let get_fdo op2fdo addr mv =
+  match maybe_all (List.map byte_of_byte_lifted mv) with
+  | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mv) ^ ")")
+  | Just [b0; b1; b2; b3] ->
+    let endianness = E_little_endian in (* TODO: hook this into the arch *)
+    let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
+      match endianness with
+      | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
+      | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
+      end
+      in op2fdo addr opcode
+  | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
+  end
+
+
 let get_fetch_instruction_continuation params
     (i_sem:        instruction_semantics)
     (state:        thread_state)
     (inst_context: instruction_in_context)
     (addr:         address)
-    : (fetch_and_decode_outcome -> thread_cont_res thread_state)
+    : (fetched -> thread_cont_res thread_state)
   =
-  fun fdo ->
+  fun f ->
+    let fdo =
+      match f with
+      | Fetched_FDO fdo -> fdo
+      | Decoded fdo -> fdo
+      | Fetched_Mem mrs -> get_fdo i_sem.decode_to_instruction addr (mrs.mrs_value)
+      end
+    in
     let i = inst_context.iic_instance in
     let prefix = (i :: inst_context.active_prefix ++ inst_context.old_prefix) in
     let (id_state', is') = fetch_instruction params i_sem state prefix addr fdo in
@@ -3826,10 +3848,9 @@ let enumerate_transitions_of_instruction
 (* val debug_print : string -> unit *)
 (* declare ocaml target_rep function debug_print s = `Printf.eprintf` "%s%!" s *)
 
-let make_fr addr fk semf =
+let make_fr addr fk =
     <| fr_addr = addr;
        fr_kind = fk;
-       fr_semf = semf;
     |>
 
 let enumerate_fetch_transitions_of_instruction params
@@ -3871,7 +3892,7 @@ let enumerate_fetch_transitions_of_instruction params
 
   let op2fdo = i_sem.decode_to_instruction in
   let thread_cont = get_fetch_instruction_continuation params i_sem state iic addr in
-  [T_sync (T_fetch (make_label state iic (make_fr addr fetch_kind op2fdo) thread_cont)) ()]
+  [T_sync (T_fetch (make_label state iic (make_fr addr fetch_kind) thread_cont)) ()]
 
 let create_fdo (a : address) i_sem
     : memory_read_source -> fetch_and_decode_outcome =
@@ -3912,7 +3933,14 @@ let initial_fetch_transition_of_thread
     (ioid, <| state with id_state = id_state' |>)
   in
 
-  let thread_cont = fun (fdo: fetch_and_decode_outcome) ->
+  let thread_cont = fun (f: fetched) ->
+    let fdo = 
+      match f with
+      | Fetched_FDO fdo -> fdo
+      | Decoded fdo -> fdo
+      | Fetched_Mem mrs -> get_fdo i_sem.decode_to_instruction addr (mrs.mrs_value)
+      end
+    in
     let (id_state', is') = fetch_instruction params i_sem state [] addr fdo in
 
     <| state with
@@ -3924,7 +3952,7 @@ let initial_fetch_transition_of_thread
 
   let op2fdo = i_sem.decode_to_instruction in
   let tl =
-    <|  tl_label = make_fr addr FK_normal op2fdo;
+    <|  tl_label = make_fr addr FK_normal;
         tl_suppl = Nothing;
         tl_cont  =
           <|  tc_tid  = state.thread;
