@@ -183,20 +183,20 @@ let is_rw_transition t =
 
 let is_fetch_single_transition : (trans 'ts 'ss -> bool) = function
   | T_trans (T_sync (T_fetch tl) _) ->
-      match tl.tl_label with
-      | (_, FK_normal)         -> true
-      | (_, FK_multiple_fixed) -> false
-      | (_, FK_unfixed)        -> false
+      match tl.tl_label.fr_kind with
+      | FK_normal         -> true
+      | FK_multiple_fixed -> false
+      | FK_unfixed        -> false
       end
   | _ -> false
   end
 
 let is_fetch_multi_transition : (trans 'ts 'ss -> bool) = function
   | T_trans (T_sync (T_fetch tl) _) ->
-      match tl.tl_label with
-      | (_, FK_normal)         -> false
-      | (_, FK_multiple_fixed) -> true
-      | (_, FK_unfixed)        -> true
+      match tl.tl_label.fr_kind with
+      | FK_normal         -> false
+      | FK_multiple_fixed -> true
+      | FK_unfixed        -> true
       end
   | _ -> false
   end
@@ -452,7 +452,7 @@ let trans_fetches_address
     : trans 'ts 'ss -> bool
   = function
   | T_trans (T_sync (T_fetch tl) _) ->
-      let (addr', _) = tl.tl_label in
+      let addr' = tl.tl_label.fr_addr in
       addr = addr'
   | _ -> false
   end
@@ -490,8 +490,8 @@ end
 
 let fetch_multi_priority : trans 'ts 'ss -> bool = function
   | T_trans (T_sync (T_fetch tl) _) ->
-    match tl.tl_label with
-    | (_, FK_multiple_fixed) -> true
+    match tl.tl_label.fr_kind with
+    | FK_multiple_fixed -> true
     | _ -> false
     end
   | _ -> false

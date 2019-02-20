@@ -398,7 +398,7 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (_, T_try_store_excl _) -> -1
 
     | (T_fetch tl1, T_fetch tl2) ->
-        let cmp (addr1, _) (addr2, _) = Sail_impl_base.addressCompare addr1 addr2 in
+        let cmp f1 f2 = Sail_impl_base.addressCompare f1.fr_addr f2.fr_addr in
         cmp_tl cmp tl1 tl2
 
     | (T_Promising_mem_satisfy_read tl1, T_Promising_mem_satisfy_read tl2) -> -1

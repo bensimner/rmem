@@ -2110,51 +2110,25 @@ let fetch_instruction params
       (id_state', [starting_fetch_exception_inst_instance ioid' (FDE_decode_error de addr) addr])
   end
 
-let create_fdo (a : address) i_sem
-    : memory_read_source -> fetch_and_decode_outcome =
-    fun mrs ->
-        match maybe_all (List.map byte_of_byte_lifted (mrs.mrs_value)) with
-        | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mrs.mrs_value) ^ ")")
-        | Just [b0; b1; b2; b3] ->
-            let endianness = E_little_endian in (* TODO: hook this into the arch *)
-            let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
-                match endianness with
-                | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
-                | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
-                end
-            in
-            let fdo = i_sem.decode_to_instruction a opcode in
-            fdo
-        | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
-        end
-
-let satisfy_fetch params a i_sem state iic (mrs : memory_read_source)
-    : thread_cont_res thread_state =
-    let fdo = create_fdo a i_sem mrs in
-    let i = iic.iic_instance in
-    let prefix = (i :: iic.active_prefix ++ iic.old_prefix) in
-    let (id_state', is') = fetch_instruction params i_sem state prefix a fdo in
-    let (T iits) = iic.subtree in
-    let it' = T (iits ++ [(i', T[]) | forall (i' MEM is') | true]) in
-        <|  state with
-            instruction_tree = apply_tree_context iic.context (i,it');
-            id_state = id_state'
-        |>
-    $> make_old_instructions params
-    $> make_thread_cont_res {} {}
-
 let get_fetch_instruction_continuation params
     (i_sem:        instruction_semantics)
     (state:        thread_state)
     (inst_context: instruction_in_context)
     (addr:         address)
-    : (list memory_read_source -> thread_cont_res thread_state)
+    : (fetch_and_decode_outcome -> thread_cont_res thread_state)
   =
-  fun mrss ->
-      match mrss with
-      | [mrs] -> satisfy_fetch params addr i_sem state inst_context mrs
-      | _ -> failwith "expected one mrs"
-      end
+  fun fdo ->
+    let i = inst_context.iic_instance in
+    let prefix = (i :: inst_context.active_prefix ++ inst_context.old_prefix) in
+    let (id_state', is') = fetch_instruction params i_sem state prefix addr fdo in
+    let (T iits) = inst_context.subtree in
+    let it' = T (iits ++ [(i', T[]) | forall (i' MEM is') | true]) in
+        <|  state with
+            instruction_tree = apply_tree_context inst_context.context (i,it');
+            id_state = id_state'
+        |>
+    $> make_old_instructions params
+    $> make_thread_cont_res {} {}
 
 
 (**: \subsubsection{The Collected Thread Transitions} :*)
@@ -3852,6 +3826,12 @@ let enumerate_transitions_of_instruction
 (* val debug_print : string -> unit *)
 (* declare ocaml target_rep function debug_print s = `Printf.eprintf` "%s%!" s *)
 
+let make_fr addr fk semf =
+    <| fr_addr = addr;
+       fr_kind = fk;
+       fr_semf = semf;
+    |>
+
 let enumerate_fetch_transitions_of_instruction params
     (i_sem:  instruction_semantics)
     (state:  thread_state)
@@ -3889,8 +3869,28 @@ let enumerate_fetch_transitions_of_instruction params
   guard (addr NIN already_fetched_addrs) >>
   guard (addr <> state.return_address) >>
 
+  let op2fdo = i_sem.decode_to_instruction in
   let thread_cont = get_fetch_instruction_continuation params i_sem state iic addr in
-  [T_sync (T_fetch (make_label state iic (addr, fetch_kind) thread_cont)) ()]
+  [T_sync (T_fetch (make_label state iic (make_fr addr fetch_kind op2fdo) thread_cont)) ()]
+
+let create_fdo (a : address) i_sem
+    : memory_read_source -> fetch_and_decode_outcome =
+    fun mrs ->
+        match maybe_all (List.map byte_of_byte_lifted (mrs.mrs_value)) with
+        | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mrs.mrs_value) ^ ")")
+        | Just [b0; b1; b2; b3] ->
+            let endianness = E_little_endian in (* TODO: hook this into the arch *)
+            let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
+                match endianness with
+                | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
+                | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
+                end
+            in
+            let fdo = i_sem.decode_to_instruction a opcode in
+            fdo
+        | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
+        end
+
 
 
 let initial_fetch_transition_of_thread
@@ -3912,8 +3912,7 @@ let initial_fetch_transition_of_thread
     (ioid, <| state with id_state = id_state' |>)
   in
 
-  let thread_cont = fun ([mrs]: list memory_read_source) ->
-    let fdo = create_fdo addr i_sem mrs in
+  let thread_cont = fun (fdo: fetch_and_decode_outcome) ->
     let (id_state', is') = fetch_instruction params i_sem state [] addr fdo in
 
     <| state with
@@ -3923,8 +3922,9 @@ let initial_fetch_transition_of_thread
     $> make_thread_cont_res {} {}
   in
 
+  let op2fdo = i_sem.decode_to_instruction in
   let tl =
-    <|  tl_label = (addr, FK_normal);
+    <|  tl_label = make_fr addr FK_normal op2fdo;
         tl_suppl = Nothing;
         tl_cont  =
           <|  tc_tid  = state.thread;

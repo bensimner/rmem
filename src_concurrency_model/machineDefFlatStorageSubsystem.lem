@@ -22,6 +22,7 @@
 open import Pervasives
 open import Assert_extra
 
+open import Sail_impl_base
 open import MachineDefTypes
 open import MachineDefEvents
 open import MachineDefFragments
@@ -179,6 +180,9 @@ let flat_try_commit_store_cond params state tl =
 let flat_ss_initial_state params tids initial_writes =
   (* TODO: ensure initial writes don't overlap *)
   <|  flat_ss_memory_writes     = complete_writes initial_writes;
+      flat_ss_fetch_buf         = [];
+      flat_ss_fetch_mem         = complete_writes initial_writes;
+      flat_ss_icaches           = Map.fromList [(tid, []) | forall (tid MEM (Set_extra.toList tids)) | true];
       flat_ss_old_writes        = initial_writes;
       flat_ss_exclusive_reads   = Map.empty;
   |>
@@ -216,17 +220,31 @@ let flat_ss_remove_old_read_requests _params state tid restarted_ioids discarded
 (* TODO: maybe move this to machineDefSystem and make it fake a read?
     or maybe just implement equivalent for each model storage subsystem *)
 let flat_try_fetch_atomic _params state tl =
-  let (addr, _) = tl.tl_label in
+  let addr = tl.tl_label.fr_addr in
+  let op2fdo = tl.tl_label.fr_semf in
   let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
   let writes = state.flat_ss_memory_writes in
   let mrs =
-      match mrs_from_writes fp writes with
-      | Nothing -> failwith "flat try fetch from uninitialized memory"
-      | Just mrs -> mrs
-      end
+    match mrs_from_writes fp writes with
+    | Nothing -> failwith "flat try fetch from uninitialized memory"
+    | Just mrs -> mrs
+    end
   in
-  let mrss = [mrs] in
-  let tl' = <| tl with tl_suppl = Just mrss |> in
+  let fdo =
+    match maybe_all (List.map byte_of_byte_lifted (mrs.mrs_value)) with
+    | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mrs.mrs_value) ^ ")")
+    | Just [b0; b1; b2; b3] ->
+      let endianness = E_little_endian in (* TODO: hook this into the arch *)
+      let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
+        match endianness with
+        | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
+        | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
+        end
+      in op2fdo addr opcode
+    | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
+    end
+  in
+  let tl' = <| tl with tl_suppl = Just fdo |> in
   return (T_fetch tl', Nothing)
 
 let flat_try_fetch params state tl =

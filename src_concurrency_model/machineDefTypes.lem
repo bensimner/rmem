@@ -622,6 +622,12 @@ type flat_storage_subsystem_state =
   <|  (* the currently visible write-slices in memory;
       invariant: no overlapping slices *)
       flat_ss_memory_writes : list (write * slices);
+      (* the per-thread icache *)
+      flat_ss_icaches : map thread_id (list (write * slices));
+      (* the global buffer of writes that can be fetched from *)
+      flat_ss_fetch_buf : list write;
+      (* the fetch base memory, TODO: merge with flat_ss_memory_writes *)
+      flat_ss_fetch_mem : list (write * slices);
       (* record writes that flowed to memory in the order in which they
       flowed (head is new); we need this to reconstruct coherence *)
       flat_ss_old_writes : list write;
@@ -1708,11 +1714,18 @@ end
 
 (* thread transitions which involve interaction with the storage
 subsystem when taken *)
+type fetch_request =
+    <| fr_addr : address;
+       fr_kind : fetch_kind;
+       fr_semf : address -> opcode -> fetch_and_decode_outcome;
+    |>
+
+
 (** NOTE: ALL THE CONSTRUCTORS SHOULD HAVE THE TYPE "thread_label 'l 's" *)
 type thread_sync_label 'ts =
   | T_fetch of thread_label
-      (address * fetch_kind)  (* the address we're fetching *)
-      (list memory_read_source)  (* the value we fetched *)
+      fetch_request
+      (fetch_and_decode_outcome)  (* the value we fetched *)
       'ts
   | T_mem_read_request of thread_label
       (read_request * slices (* the slices we're requesting *)
