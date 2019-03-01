@@ -40,6 +40,8 @@ let read_footprint_of_trans (transition: trans 'ts 'ss) : maybe footprint =
   | Sys_trans _ _ -> Nothing
   | T_trans (T_only tl) ->
       match tl.tl_label with
+      | T_init_fetch _           -> Nothing
+      | T_decode _ _             -> Nothing
       | T_internal_outcome      -> Nothing
       | T_pending_memory_read_request -> Nothing
       | T_pseudoreg_read _ _    -> Nothing
@@ -64,10 +66,13 @@ let read_footprint_of_trans (transition: trans 'ts 'ss) : maybe footprint =
       | T_POP_subsumed_write _  -> Nothing
       | T_RISCV_atomic_begin    -> Nothing
       | T_RISCV_atomic_end      -> Nothing
+      | T_init_fetch _          -> Nothing
+      | T_decode _ _            -> Nothing
       end
   | T_trans (T_sync tsl _) ->
       match tsl with
-      | T_fetch _                 -> Nothing
+      | T_fetch _                 -> Nothing (* TODO: read fp from T_fetch? *)
+      | T_propogate_cache_maintenance _ -> Nothing
       | T_mem_read_request tl ->
           let (r, _, _, _) = tl.tl_label in
           Just r.r_addr
@@ -114,6 +119,8 @@ let write_footprints_of_trans (transition: trans 'ts 'ss) : list footprint =
   | Sys_trans _ _ -> []
   | T_trans (T_only tl) ->
       match tl.tl_label with
+      | T_init_fetch _           -> []
+      | T_decode _ _             -> []
       | T_internal_outcome       -> []
       | T_pending_memory_read_request -> []
       | T_pseudoreg_read _ _     -> []
@@ -142,6 +149,7 @@ let write_footprints_of_trans (transition: trans 'ts 'ss) : list footprint =
   | T_trans (T_sync tsl _) ->
       match tsl with
       | T_fetch _                       -> []
+      | T_propogate_cache_maintenance _ -> []
       | T_mem_read_request _            -> []
       | T_propagate_write tl            -> let (w, _, _) = tl.tl_label in [w.w_addr]
       | T_propagate_barrier _           -> []
@@ -261,6 +269,8 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
           (*** TSO transitions: ***)
           | SS_TSO_propagate_write_to_memory _ -> false
           | SS_Promising_stop_promising -> false
+          (*** Flat ifetch transitions ***)
+          | SS_Flat_icache_update -> false
           end
 
       | SS_sync ss_sync_trans _ _ ->
@@ -305,10 +315,15 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
 
           | T_RISCV_atomic_begin    -> false
           | T_RISCV_atomic_end      -> true
+
+          (* ? *)
+          | T_init_fetch _          -> false
+          | T_decode _ _            -> false
           end
       | T_sync tsl _ ->
           match tsl with
           | T_fetch _                      -> false
+          | T_propogate_cache_maintenance _ -> false
           | T_mem_read_request _           -> false
           | T_propagate_write tl           -> false
           | T_propagate_barrier _          -> (is_flat_model params.t)
@@ -422,6 +437,8 @@ let is_internal : trans 'ts 'ss -> bool = function
       | T_POP_subsumed_write _  -> false
       | T_RISCV_atomic_begin    -> false
       | T_RISCV_atomic_end      -> false
+      | T_init_fetch _          -> false
+      | T_decode _ _            -> false
       end
   | _ -> false
   end

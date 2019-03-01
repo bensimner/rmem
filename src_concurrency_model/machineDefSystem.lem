@@ -72,6 +72,7 @@ let default_model_params =
         thread_fail_on_loop            = false;
         thread_isa_info                = MachineDefISAInfoPPCGen.ppcgen_ism;
         thread_loop_unroll_limit       = Nothing;
+        thread_fetch_order = Fetch_SC;
 
         thread_run_after_stop_promising = true;
         thread_certify_after_stop_promising = false;
@@ -523,6 +524,7 @@ let system_state_after_transition
     | T_sync tsl ssc ->
       match tsl with
       | T_fetch tl                      -> update_state ssc (Just (next_thread_of_tl tl))
+      | T_propogate_cache_maintenance tl-> update_state ssc (Just (next_thread_of_tl tl))
       | T_mem_read_request tl           -> update_state ssc (Just (next_thread_of_tl tl))
       | T_propagate_write tl            -> update_state ssc (Just (next_thread_of_tl tl))
       | T_propagate_barrier tl          -> update_state ssc (Just (next_thread_of_tl tl))

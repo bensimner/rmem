@@ -178,12 +178,16 @@ let flat_try_commit_store_cond params state tl =
     let tl' = <| tl with tl_suppl = Just MWO_exclusive_failed |> in
     return (T_Flat_try_commit_store_cond tl', Nothing)
 
+let empty_icache tid = 
+  <| ic_memory = Map.empty;
+     ic_tid = tid;
+  |>
+
 let flat_ss_initial_state params tids initial_writes =
   (* TODO: ensure initial writes don't overlap *)
   <|  flat_ss_memory_writes     = complete_writes initial_writes;
       flat_ss_fetch_buf         = [];
-      flat_ss_fetch_mem         = complete_writes initial_writes;
-      flat_ss_icaches           = Map.fromList [(tid, []) | forall (tid MEM (Set_extra.toList tids)) | true];
+      flat_ss_icaches           = Map.fromList [(tid, empty_icache tid) | forall (tid MEM (Set_extra.toList tids)) | true];
       flat_ss_old_writes        = initial_writes;
       flat_ss_exclusive_reads   = Map.empty;
   |>
@@ -230,17 +234,16 @@ let flat_try_fetch_atomic _params state tl =
     end
   in
   let tl' = <| tl with tl_suppl = Just (Fetched_Mem mrs) |> in
-  return (T_fetch tl', Nothing)
+  [(T_fetch tl', Nothing)]
 
 (* TODO: check footprint/slices *)
 let write_is_to_addr addr w =
     w.w_addr = (addr, 4)
 
-let flat_try_fetch_relaxed _params state tl =
-  let addr = tl.tl_label.fr_addr in
+let flat_fetch_from_relaxed _params state addr =
   let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
   let writes = state.flat_ss_fetch_buf in
-  let flat_mem = state.flat_ss_fetch_mem in
+  let flat_mem = state.flat_ss_memory_writes in
   let accept_writes = List.filter (write_is_to_addr addr) writes in
   let mrss =
     match maybe_all (List.map (fun w -> w.w_value) accept_writes) with
@@ -254,9 +257,35 @@ let flat_try_fetch_relaxed _params state tl =
     | Just mrs -> mrs :: mrss
     end
   in
-  let tl's = List.map (fun mrs -> <| tl with tl_suppl = Just (Fetched_Mem mrs) |>) mrss in
-  (* TODO: return a list of transitions *)
-  return (T_fetch (head tl's), Nothing)
+  mrss
+
+let icache_update_addr (icache) (addr : address) (mrs : memory_read_source) state =
+    fun () ->
+        let icache' =
+            <| icache with
+                ic_memory = Map.insert addr mrs (icache.ic_memory);
+            |>
+        in
+        <| state with
+            flat_ss_icaches = Map.insert icache.ic_tid icache' (state.flat_ss_icaches);
+        |>
+
+let rec flat_try_fetch_relaxed params state tl =
+  let addr = tl.tl_label.fr_addr in
+  match Map.lookup tl.tl_label.fr_tid state.flat_ss_icaches with
+  | Nothing     -> failwith "flat_try_fetch_relaxed unknown thread"
+  | Just icache ->
+      match Map.lookup addr icache.ic_memory with
+      | Nothing ->
+          let mrss = flat_fetch_from_relaxed params state addr in
+          let state' mrs = icache_update_addr icache addr mrs state () in
+          let f mrs = flat_try_fetch_relaxed params (state' mrs) tl in
+          List.concat (List.map f mrss)
+          (* failwith "flat_try_fetch_relaxed nothing in icache" *)
+      | Just mrs ->
+          [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs) |>), Nothing)]
+      end
+  end
 
 let flat_try_fetch params state tl =
     match params.model_fetch_type with
@@ -264,12 +293,12 @@ let flat_try_fetch params state tl =
     | Fetch_Relaxed -> flat_try_fetch_relaxed params state tl
     end
 
-let flat_ss_receive_transition params state = function
+let flat_ss_receive_transition_guarded params state = function
   | T_propagate_write tl ->            flat_propagate_write params state tl
   | T_Flat_mem_satisfy_read tl ->      flat_satisfy_read params state tl
   | T_Flat_try_commit_store_cond tl -> flat_try_commit_store_cond params state tl
   | T_try_store_excl tl ->             flat_try_store_excl params state tl
-  | T_fetch tl ->                      flat_try_fetch params state tl
+  | T_propogate_cache_maintenance tl -> failwith "flat_ss_recv propogate_cache_maintenance not implemented"
   | T_mem_read_request tl ->           fail
   | T_propagate_barrier tl ->          fail
   | T_PLDI11_mem_satisfy_read _ ->     fail
@@ -282,12 +311,36 @@ let flat_ss_receive_transition params state = function
   | T_Promising_mem_satisfy_read _ ->  fail
   | T_Promising_propagate_write_nonshared _ ->   fail
   | T_Promising_mem_satisfy_read_nonshared _ ->  fail
+  | T_fetch _ -> failwith "T_fetch is not guarded"
+end
+
+let flat_ss_receive_transition params state = function
+  | T_fetch tl -> flat_try_fetch params state tl
+  | trans -> ListMonad.option_guard (flat_ss_receive_transition_guarded params state trans)
 end
 
 
 let flat_ss_is_final_state _params _state : bool = true
 
+let enumerate_icache_update_transitions params (state : flat_storage_subsystem_state) (icache : icache)
+    : list (ss_trans flat_storage_subsystem_state) =
+    let state' addr mrs = icache_update_addr icache addr mrs state
+    in
+    let enumerate_addr (addr : address) : list (ss_trans flat_storage_subsystem_state) =
+        let f mrs : list (ss_trans flat_storage_subsystem_state) = 
+            [SS_only (SS_Flat_icache_update icache.ic_tid addr mrs) (state' addr mrs)]
+        in
+        List.concat (List.map f (flat_fetch_from_relaxed params state addr))
+    in
+    let enumerate_addrs (s : set address) =
+        let vs : list address = Set_extra.toList s in
+        List.concat (List.map enumerate_addr vs)
+    in
+    enumerate_addrs (Map.domain icache.ic_memory)
 
+let enumerate_transitions_ss params state =
+    let caches = Set_extra.toList (Map.range state.flat_ss_icaches) in
+    List.concat (List.map (enumerate_icache_update_transitions params state) caches)
 
 let flat_make_ui_storage_subsystem_state
     (ss: maybe flat_storage_subsystem_state)
@@ -332,9 +385,9 @@ let flat_storage =
 
 val flat_machine_storage : forall 'ts. machineStorageSubsystem 'ts flat_storage_subsystem_state
 let flat_machine_storage =
-  <| ss_enumerate_transitions             = fun _p _s -> [];
+ <| ss_enumerate_transitions = enumerate_transitions_ss;
      ss_receive_transition = 
-       fun p s tl -> ListMonad.option_guard (flat_ss_receive_transition p s tl);
+         fun p s tl -> flat_ss_receive_transition p s tl;
      ss_enumerate_final_transitions = fun s -> [];
      ss_make_ui_storage_state = flat_make_ui_storage_subsystem_state;
  |>

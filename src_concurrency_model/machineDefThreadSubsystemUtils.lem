@@ -744,6 +744,56 @@ let analyse_instruction
     end in
   (ik, nias, dia, regs_in, regs_out, regs_feeding_address)
 
+let starting_fetch_inst
+      params
+      (new_ioid: ioid)
+      (loc:      address)
+    : instruction_instance
+  =
+ <| instance_ioid =     new_ioid;
+    instance_id_state = MachineDefFreshIds.initial_id_state new_ioid;
+    program_loc =       loc;
+    program_opcode =    Nothing;
+    instruction =       Fetch_error;  (* TODO: this should be something like Fetch_unfetched *)
+    instruction_kind =  IK_simple;
+
+    initial_micro_op_state =          MOS_fetch Nothing;
+    initial_regs_in =                 Set.empty;
+    initial_regs_out =                Set.empty;
+    initial_regs_in_feeding_address = Set.empty;
+
+    regs_in =                 Set.empty;
+    regs_out =                Set.empty;
+    regs_in_feeding_address = Set.empty;
+    ioids_feeding_address =   Set.empty;
+    nias =                    Set.empty;
+    mips_dia = DIA_none;
+    reg_reads =  [];
+    reg_writes = [];
+
+    subreads =
+      <|  sr_addr =             Nothing;
+          sr_unsat_slices =     [];
+          sr_writes_read_from = [];
+          sr_requested =        [];
+          sr_assembled_value =  Nothing;
+      |>;
+
+    subwrites =
+      <|  sw_addr =                      Nothing;
+          sw_potential_write_addresses = [];
+          sw_potential_writes =          [];
+          sw_propagated_writes =         [];
+          sw_committed =                 false;
+      |>;
+
+    successful_atomic_store = Nothing;
+    committed_barriers =   [];
+    finished =  false;
+    micro_op_state = MOS_fetch Nothing;
+    rmw_finished_load_snapshot = Nothing;
+|>
+
 let starting_inst_instance_aux
       params
       (i_sem:    instruction_semantics)

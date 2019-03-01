@@ -1465,6 +1465,8 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
       ("propagate write to memory", Some info)
 
   | SS_Promising_stop_promising -> ("stop promising", None)
+  | SS_Flat_icache_update (_, _, _) ->
+        ("icache update", None)
 
 
 let pp_ss_sync_label ?(graph=false) m t =
@@ -1772,6 +1774,17 @@ let pp_t_sync_label ?(graph=false) m t =
           end
       in
       ("fetch instruction", Some info)
+
+  | T_propogate_cache_maintenance {tl_label=(cmk, addr); tl_cont=tc} ->
+      let info =
+          sprintf "%s %s"
+              (pp_address m (Some tc.tc_ioid) addr)
+              (match cmk with
+               | CM_DC -> "DC"
+               | CM_IC -> "IC")
+      in
+      ("propogate cache maintenance", Some info)
+
 
   | T_POP_tm_start {tl_suppl = None} -> assert false
   | T_POP_tm_start {tl_cont = tc} ->
@@ -2362,6 +2375,7 @@ let pp_requested_reads m subreads =
 let pp_micro_op_state_top indent ioid m mos =
   if not(m.pp_style = Globals.Ppstyle_screenshot) then
     match mos with
+    | MOS_fetch is              -> "MOS_fetch"
     | MOS_plain is              -> "MOS_plain"
     | MOS_pending_mem_read ic   -> "MOS_pending_mem_read"
     | MOS_potential_mem_write c -> "MOS_pending_mem_write"
@@ -2372,6 +2386,7 @@ let pp_micro_op_state_top indent ioid m mos =
 
   else
     match mos with
+    | MOS_fetch is              -> ""
     | MOS_plain is              -> ""
     | MOS_pending_mem_read ic   -> "MOS_pending_mem_read"
     | MOS_potential_mem_write c -> "MOS_pending_mem_write"
@@ -2419,6 +2434,8 @@ let pp_outcome_S indent m is =
 let pp_micro_op_state_body indent subreads potential_writes m mos =
 (*  let indent = if not(m.pp_screenshot) then indent else indent^"  " in*)
   match mos with
+  | MOS_fetch None     -> "MOS-fetch Nothing TODO"
+  | MOS_fetch (Some f) -> "MOS-fetch something TODO"
   | MOS_plain is -> pp_outcome_S indent m is
 
   | MOS_pending_mem_read ic ->

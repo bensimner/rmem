@@ -169,6 +169,13 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (SS_Promising_stop_promising, SS_Promising_stop_promising) -> 0
     | (SS_Promising_stop_promising, _) -> 1
     | (_, SS_Promising_stop_promising) -> -1
+    | (SS_Flat_icache_update (tid, addr, mrs), SS_Flat_icache_update (tid2, addr2, mrs2)) -> 
+            cmps [ (fun () -> Pervasives.compare tid tid2)
+                 ; (fun () -> Sail_impl_base.addressCompare addr addr2)
+                 ; (fun () -> Pervasives.compare mrs mrs2)
+                 ]
+    | (SS_Flat_icache_update (_, _, _), _) -> 1
+    | (_, SS_Flat_icache_update (_, _, _)) -> -1
   in
 
   let cmp_ss_sync_trans l1 l2 =
@@ -219,6 +226,18 @@ let fuzzy_compare_transitions trans1 trans2 =
 
   let cmp_t_only_trans l1 l2 =
     match (l1, l2) with
+    | (T_init_fetch addr1, T_init_fetch addr2) ->
+        Sail_impl_base.addressCompare addr1 addr2
+    | (T_init_fetch _, _) -> 1
+    | (_, T_init_fetch _) -> -1
+
+    | (T_decode (addr1, fetched1), T_decode (addr2, fetched2))  ->
+        cmps [ (fun () -> Sail_impl_base.addressCompare addr1 addr2)
+             ; (fun () -> Pervasives.compare fetched1 fetched2)
+             ]
+    | (T_decode _, _)  -> 1
+    | (_, T_decode _)  -> -1
+
     | (T_internal_outcome, T_internal_outcome) -> 0
     | (T_internal_outcome, _) -> 1
     | (_, T_internal_outcome) -> -1
@@ -397,9 +416,28 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (T_try_store_excl _, _) -> 1
     | (_, T_try_store_excl _) -> -1
 
+
     | (T_fetch tl1, T_fetch tl2) ->
         let cmp f1 f2 = Sail_impl_base.addressCompare f1.fr_addr f2.fr_addr in
         cmp_tl cmp tl1 tl2
+    | (T_fetch _, _) -> 1
+    | (_, T_fetch _) -> -1
+
+    | (T_propogate_cache_maintenance tl1, T_propogate_cache_maintenance tl2) ->
+        let cmp (cmk1, addr1) (cmk2, addr2) = 
+            cmps [ (fun () -> Sail_impl_base.addressCompare addr1 addr2)
+                 ; (fun () ->
+                     (match (cmk1, cmk2) with
+                      | (CM_DC, CM_DC) -> 0
+                      | (CM_IC, CM_IC) -> 0
+                      | (CM_DC, _) -> -1
+                      | (_, _) -> 1
+                     ))
+                 ]
+        in
+        cmp_tl cmp tl1 tl2
+    | (T_propogate_cache_maintenance _, _) -> 1
+    | (_, T_propogate_cache_maintenance _) -> -1
 
     | (T_Promising_mem_satisfy_read tl1, T_Promising_mem_satisfy_read tl2) -> -1
         (* let cmp (read1,_) (read2,_) = read_requestCompare read1 read2 in
@@ -836,10 +874,14 @@ let XX_value params = params.t.XX
 open MachineDefTypes
 
 let fetch_atomics_assoc =
-  [(Fetch_Atomic, "fetch-atomic");
-   (Fetch_Relaxed, "fetch-relaxed")]
-let fetch_atomics_update params value = {params with ss = {params.ss with model_fetch_type = value}}
-let fetch_atomics_value params = params.ss.model_fetch_type
+  [((Fetch_Atomic, Fetch_SC), "fetch-atomic");
+   ((Fetch_Relaxed, Fetch_Unrestricted), "fetch-relaxed")]
+let fetch_atomics_update params (mft, tfo)  = 
+    {params with
+        ss = {params.ss with model_fetch_type=mft};
+        t  = {params.t  with thread_fetch_order=tfo};
+    }
+let fetch_atomics_value params = (params.ss.model_fetch_type, params.t.thread_fetch_order)
 
 let model_assoc =
   [((PLDI11_storage_model,  PLDI11_thread_model),           "pldi11");

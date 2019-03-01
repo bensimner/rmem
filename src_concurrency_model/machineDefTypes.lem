@@ -617,21 +617,22 @@ type flowing_storage_subsystem_state =
 
 
 (******************** Flat Storage Subsystem ********************)
+type icache =
+  <| ic_memory: map address memory_read_source;
+     ic_tid: thread_id;
+  |>
 
 type flat_storage_subsystem_state =
   <|  (* the currently visible write-slices in memory;
       invariant: no overlapping slices *)
       flat_ss_memory_writes : list (write * slices);
-      (* the per-thread icache *)
-      flat_ss_icaches : map thread_id (list (write * slices));
+      (* the per-thread icache + set of misses *)
+      flat_ss_icaches : map thread_id icache;
       (* the global buffer of writes that can be fetched from *)
       flat_ss_fetch_buf : list write;
-      (* the fetch base memory, TODO: merge with flat_ss_memory_writes *)
-      flat_ss_fetch_mem : list (write * slices);
       (* record writes that flowed to memory in the order in which they
       flowed (head is new); we need this to reconstruct coherence *)
       flat_ss_old_writes : list write;
-
       (* map read_requests of load-exclusives that are paired with store-exclusive
       that is guaranteed to succeed, to the writes they read from *)
       flat_ss_exclusive_reads: map read_request (list (write * slices) * set ioid);
@@ -1443,6 +1444,11 @@ let isa_info_stub =
 
 type branch_targets_map = map thread_id (map address (set address))
 
+
+type fetch_order =
+    | Fetch_Unrestricted
+    | Fetch_SC
+
 type thread_params =
   <| thread_model:       thread_model;
      thread_restriction: thread_restriction; (* additional model restrictions *)
@@ -1454,6 +1460,7 @@ type thread_params =
      thread_fail_on_loop:            bool;
      thread_isa_info :               isa_info;
      thread_loop_unroll_limit:       maybe nat;
+     thread_fetch_order: fetch_order;
 
      branch_targets: branch_targets_map;
 
@@ -1541,6 +1548,8 @@ type ss_only_trans =
   | SS_TSO_propagate_write_to_memory of write
   (*** Promising transitions: ***)
   | SS_Promising_stop_promising
+  (*** Flat ifetch transitions ***)
+  | SS_Flat_icache_update of thread_id * address * memory_read_source
 
 let principal_ioid_of_ss_only_trans = function
   | SS_PLDI11_partial_coherence_commit w1 _      -> w1.w_ioid (* or maybe the other one? *)
@@ -1559,6 +1568,7 @@ let principal_ioid_of_ss_only_trans = function
   | SS_Flowing_partially_satisfy_read r _        -> r.r_ioid
   | SS_TSO_propagate_write_to_memory w           -> w.w_ioid
   | SS_Promising_stop_promising                  -> (0,0) (* TODO: fix? *)
+  | SS_Flat_icache_update _ _ _                  -> failwith "principle_ioid_of_ss_only Flat_icache_update TODO"
   end
 
 (* transitions that are initiated by the storage subsystem but also change the thread state *)
@@ -1664,7 +1674,7 @@ type thread_only_trans =
   | T_footprint_outcome
   | T_actually_satisfy    of memory_value
   | T_init_fetch of address
-  | T_decode of (address * fetched)
+  | T_decode of address * fetched
   (** not internal transitions: *)
   | T_register_read       of reg_name * register_read_sources * register_value
   | T_register_write      of reg_name * register_value
@@ -1697,7 +1707,7 @@ let show_thread_only_label = function
   | T_footprint_outcome -> "T_footprint_outcome"
   | T_actually_satisfy _ -> "T_actually_satisfy"
   | T_init_fetch _ -> "T_init_fetch"
-  | T_decode _ -> "T_decode"
+  | T_decode _ _ -> "T_decode"
   (** not internal transitions: *)
   | T_register_read _ _ _ -> "T_register_read"
   | T_register_write _ _ -> "T_register write"
@@ -1724,11 +1734,13 @@ subsystem when taken *)
 type fetch_request =
     <| fr_addr : address;
        fr_kind : fetch_kind;
+       fr_tid : thread_id;
     |>
 
 type cache_maintenance_kind =
     | CM_DC
     | CM_IC
+
 
 (** NOTE: ALL THE CONSTRUCTORS SHOULD HAVE THE TYPE "thread_label 'l 's" *)
 type thread_sync_label 'ts =
