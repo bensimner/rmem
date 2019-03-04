@@ -3831,10 +3831,21 @@ let enumerate_decode_transitions_of_instruction params
             <|  state with
                 instruction_tree = apply_tree_context iic.context (i',iic.subtree);
             |>
-        $> make_old_instructions params
-        $> make_thread_cont_res {} {}
-    | _ -> failwith "TODO: enumerate decode on failed fetch"
+    | err ->
+      let fde =
+        match err with
+        | FDO_address_not_concrete -> FDE_non_concrete_fetch_address_error
+        | FDO_illegal_fetch_address -> FDE_illegal_fetch_address_error i.program_loc
+        | FDO_decode_error de -> FDE_decode_error de i.program_loc
+        end
+      in
+        let i' = <| i with micro_op_state = MOS_pending_exception (ET_fetch_and_decode fde) |> in
+            <|  state with
+                instruction_tree = apply_tree_context iic.context (i',iic.subtree);
+            |>
     end
+    $> make_old_instructions params
+    $> make_thread_cont_res {} {}
   in
   [T_only (make_label state iic (T_decode i.program_loc f) cont)]
 
