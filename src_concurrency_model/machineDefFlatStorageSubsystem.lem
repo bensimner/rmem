@@ -283,7 +283,7 @@ let rec flat_try_fetch_relaxed params state tl =
           List.concat (List.map f mrss)
           (* failwith "flat_try_fetch_relaxed nothing in icache" *)
       | Just mrs ->
-          [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs) |>), Nothing)]
+          [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs) |>), Just (fun() -> state))]
       end
   end
 
@@ -293,12 +293,40 @@ let flat_try_fetch params state tl =
     | Fetch_Relaxed -> flat_try_fetch_relaxed params state tl
     end
 
+
+let flat_flow_writes _params state addr =
+    let fetch_buf = state.flat_ss_fetch_buf in
+    List.filter (write_is_to_addr addr) fetch_buf
+
+let flat_clear_icaches params state addr =
+    let icaches = state.flat_ss_icaches in
+    let clear_icache ic =
+        <| ic with ic_memory = Map.delete addr ic.ic_memory |>
+    in
+    Map.map clear_icache icaches
+
+let flat_propogate_dc params state addr =
+  <| state with flat_ss_fetch_buf=flat_flow_writes params state addr |>
+
+let flat_propogate_ic params state addr =
+  <| state with flat_ss_icaches=flat_clear_icaches params state addr |>
+
+let flat_propogate_cache_maintenance params state tl =
+    let state_cont =
+        fun () ->
+            match tl.tl_label with
+            | (CM_DC, addr) -> flat_propogate_dc params state addr
+            | (CM_IC, addr) -> flat_propogate_ic params state addr
+            end
+    in
+    return (T_propogate_cache_maintenance <| tl with tl_suppl = Just () |>, Just state_cont)
+
 let flat_ss_receive_transition_guarded params state = function
   | T_propagate_write tl ->            flat_propagate_write params state tl
   | T_Flat_mem_satisfy_read tl ->      flat_satisfy_read params state tl
   | T_Flat_try_commit_store_cond tl -> flat_try_commit_store_cond params state tl
   | T_try_store_excl tl ->             flat_try_store_excl params state tl
-  | T_propogate_cache_maintenance tl -> failwith "flat_ss_recv propogate_cache_maintenance not implemented"
+  | T_propogate_cache_maintenance tl -> flat_propogate_cache_maintenance params state tl
   | T_mem_read_request tl ->           fail
   | T_propagate_barrier tl ->          fail
   | T_PLDI11_mem_satisfy_read _ ->     fail
