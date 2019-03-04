@@ -753,6 +753,7 @@ let pp_instruction
       (program_loc: Sail_impl_base.address) =
   begin match inst with
   | Fetch_error -> "fetch error"
+  | Unfetched -> "unknown"
   | PPCGEN_instr _ ->
      let i = PPCGenTransSail.shallow_ast_to_herdtools_ast inst in
      PPCGenBase.pp_instruction (PPMode.Ascii) i
@@ -2431,11 +2432,12 @@ let pp_outcome_S indent m is =
   end
 
 
-let pp_micro_op_state_body indent subreads potential_writes m mos =
+let pp_micro_op_state_body indent addr ioid subreads potential_writes m mos =
 (*  let indent = if not(m.pp_screenshot) then indent else indent^"  " in*)
   match mos with
-  | MOS_fetch None     -> "MOS-fetch Nothing TODO"
-  | MOS_fetch (Some f) -> "MOS-fetch something TODO"
+  | MOS_fetch None     -> "MOS-fetch Unfetched"
+  | MOS_fetch (Some (Fetched_FDO fdo)) -> "MOS-fetch (from program) " ^ pp_fdo m fdo addr
+  | MOS_fetch (Some (Fetched_Mem mrs)) -> "MOS-fetch fetched " ^ pp_mrs_uncoloured m ioid mrs
   | MOS_plain is -> pp_outcome_S indent m is
 
   | MOS_pending_mem_read ic ->
@@ -2557,7 +2559,7 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
          ^ (match i.ui_finished with
             | C2b_unchanged true -> "\n"
             | _ -> nocolour_changed2b_f m
-                                        (pp_micro_op_state_body indent' i.ui_subreads i.ui_subwrites.ui_sw_potential_writes)
+                                        (pp_micro_op_state_body indent' i.ui_program_loc i.ui_instance_ioid i.ui_subreads i.ui_subwrites.ui_sw_potential_writes)
                                         i.ui_micro_op_state))
     else
       ""

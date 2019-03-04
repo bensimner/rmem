@@ -2095,21 +2095,6 @@ let init_fetch_instruction params
             (id_state', [i'])
       end
 
-let get_fdo op2fdo addr mv =
-  match maybe_all (List.map byte_of_byte_lifted mv) with
-  | Nothing -> failwith ("(satisfy_fetch lifted byte: " ^ (show mv) ^ ")")
-  | Just [b0; b1; b2; b3] ->
-    let endianness = E_little_endian in (* TODO: hook this into the arch *)
-    let opcode = (* TODO: maybe instructions aren't fixed 4-byte words *)
-      match endianness with
-      | E_big_endian -> opcode_of_bytes b0 b1 b2 b3
-      | E_little_endian -> opcode_of_bytes b3 b2 b1 b0
-      end
-      in op2fdo addr opcode
-  | Just _ -> failwith "satisfy_fetch unexpected number of bytes"
-  end
-
-
 let get_fetch_instruction_continuation params
     (i_sem:        instruction_semantics)
     (state:        thread_state)

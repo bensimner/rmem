@@ -754,7 +754,7 @@ let starting_fetch_inst
     instance_id_state = MachineDefFreshIds.initial_id_state new_ioid;
     program_loc =       loc;
     program_opcode =    Nothing;
-    instruction =       Fetch_error;  (* TODO: this should be something like Fetch_unfetched *)
+    instruction =       Unfetched;
     instruction_kind =  IK_simple;
 
     initial_micro_op_state =          MOS_fetch Nothing;

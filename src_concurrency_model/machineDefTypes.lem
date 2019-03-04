@@ -210,6 +210,7 @@ type instruction_ast =
   | RISCV_instr of Riscv_types.ast
   | X86_instr of X86_embed_types.ast
   | Fetch_error
+  | Unfetched
 
 type decode_error_t =
   | Unsupported_instruction_error of opcode * instruction_ast
