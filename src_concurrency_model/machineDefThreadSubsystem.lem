@@ -3950,6 +3950,13 @@ let enumerate_init_fetch_transitions_of_instruction params
   guard (params.thread_model = TSO_thread_model --> i.finished) >>
 
   guard (i.micro_op_state <> MOS_pending_exception ET_loop_limit_reached) >>
+
+  guard (
+    match params.thread_fetch_limit with
+    | Just lim -> lim > List.length iic.active_prefix
+    | Nothing -> true
+    end) >>
+
   (*guard (match i.micro_op_state with  (* TODO: in-order for now ... *)
          | MOS_fetch _ -> false
          | _ -> true

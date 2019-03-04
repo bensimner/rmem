@@ -1461,6 +1461,7 @@ type thread_params =
      thread_fail_on_loop:            bool;
      thread_isa_info :               isa_info;
      thread_loop_unroll_limit:       maybe nat;
+     thread_fetch_limit:             maybe nat;
      thread_fetch_order: fetch_order;
 
      branch_targets: branch_targets_map;

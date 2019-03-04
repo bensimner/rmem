@@ -72,6 +72,7 @@ let default_model_params =
         thread_fail_on_loop            = false;
         thread_isa_info                = MachineDefISAInfoPPCGen.ppcgen_ism;
         thread_loop_unroll_limit       = Nothing;
+        thread_fetch_limit             = Just 10;
         thread_fetch_order = Fetch_SC;
 
         thread_run_after_stop_promising = true;
