@@ -820,7 +820,7 @@ let branch_targets_to_list
   $> Map_extra.toList
 
 let branch_targets_of_state (state: system_state 'ts 'ss) : branch_targets_map =
-  Map.map (ts_branch_targets state.t_model) state.thread_states
+  Map.map (ts_branch_targets state.model.t state.t_model) state.thread_states
 
 let union_and_diff_branch_targets
     (branch_targets_lhs: branch_targets_map)

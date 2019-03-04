@@ -1339,13 +1339,14 @@ let ts_find_instruction tmodel p ts =
   | _ -> Nothing
   end
 
-val ts_branch_targets : forall 'ts. threadSubsystem 'ts -> 'ts -> map address (set address)
-let ts_branch_targets tmodel state  =
+val ts_branch_targets : forall 'ts. thread_params -> threadSubsystem 'ts -> 'ts -> map address (set address)
+let ts_branch_targets params tmodel state  =
   let (old_instructions,instruction_tree) = tmodel.ts_instruction_tree state in
   tree_of_old_and_new_instructions_helper instruction_tree old_instructions
   $> instruction_tree_fold_root
     (fun acc _ i (T its) ->
-      if exists (nia IN i.nias). nia = NIA_indirect_address then
+      if exists (nia IN i.nias). nia = NIA_indirect_address ||
+         (params.thread_fetch_order = Fetch_Unrestricted)  then
         acc union {(i.program_loc, i'.program_loc) | forall ((i', _) MEM its) | true}
       else acc)
     {}
