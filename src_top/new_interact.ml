@@ -1341,7 +1341,7 @@ let do_add_breakpoint_line filename line interact_state : interact_state =
   let pred = fun state transition ->
     match transition with
     | T_trans (T_sync ((T_fetch {tl_label = tl}), _)) ->
-       (let addr = tl.fr_addr in
+        let addr = tl.fr_addr in
         begin match interact_state.ppmode.Globals.pp_dwarf_static with
         | Some ds ->
                let lines = Dwarf.source_lines_of_address ds (Sail_impl_base.integer_of_address addr) in
