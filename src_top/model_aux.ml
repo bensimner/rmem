@@ -874,14 +874,14 @@ let XX_value params = params.t.XX
 open MachineDefTypes
 
 let fetch_atomics_assoc =
-  [((Fetch_Atomic, Fetch_SC), "fetch-atomic");
-   ((Fetch_Relaxed, Fetch_Unrestricted), "fetch-relaxed")]
-let fetch_atomics_update params (mft, tfo)  = 
+  [((Fetch_Atomic, Fetch_Sequential, false), "fetch-atomic");
+   ((Fetch_Relaxed, Fetch_Unrestricted, true), "fetch-relaxed")]
+let fetch_atomics_update params (mft, tfo, iffss)  =
     {params with
         ss = {params.ss with model_fetch_type=mft};
-        t  = {params.t  with thread_fetch_order=tfo};
+        t  = {params.t  with thread_fetch_from_ss=iffss; thread_fetch_order=tfo};
     }
-let fetch_atomics_value params = (params.ss.model_fetch_type, params.t.thread_fetch_order)
+let fetch_atomics_value params = (params.ss.model_fetch_type, params.t.thread_fetch_order, params.t.thread_fetch_from_ss)
 
 let model_assoc =
   [((PLDI11_storage_model,  PLDI11_thread_model),           "pldi11");

@@ -1611,7 +1611,7 @@ let pp_t_only_label ?(graph=false) m tl =
 
   | T_init_fetch addr ->
       let info = (pp_address m (Some ioid) addr) in
-      ("init fetch", Some info)
+      ("init fetch next instruction", Some info)
   | T_decode (addr, f) ->
       let info =
         (match f with

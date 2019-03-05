@@ -3970,7 +3970,7 @@ let enumerate_init_fetch_transitions_of_instruction params
   (* TODO: make potential_next_addresses of init fetch be unconstrained *)
   let all_fetch_addrs =
       match params.thread_fetch_order with
-      | Fetch_SC -> potential_next_addresses_of_instruction params state iic
+      | Fetch_Sequential -> potential_next_addresses_of_instruction params state iic
       | Fetch_Unrestricted -> potential_next_addresses_of_instruction_relaxed params state iic
       end
   in

@@ -73,7 +73,8 @@ let default_model_params =
         thread_isa_info                = MachineDefISAInfoPPCGen.ppcgen_ism;
         thread_loop_unroll_limit       = Nothing;
         thread_fetch_limit             = Just 10;
-        thread_fetch_order = Fetch_SC;
+        thread_fetch_from_ss           = false;
+        thread_fetch_order             = Fetch_Sequential;
 
         thread_run_after_stop_promising = true;
         thread_certify_after_stop_promising = false;
@@ -251,7 +252,7 @@ let start_thread
 
 
 (* process a thread-transition and produce a list of system-transitions *)
-let thread_trans_to_trans (s_model : machineStorageSubsystem 'ts 'ss) 
+let thread_trans_to_trans (params : thread_params) (s_model : machineStorageSubsystem 'ts 'ss) 
       (s:  system_state 'ts 'ss) : thread_trans 'ts -> list (trans 'ts 'ss) = 
   function
   (* for the T_only  transitions, just lift them *)
@@ -280,10 +281,13 @@ let thread_trans_to_trans (s_model : machineStorageSubsystem 'ts 'ss)
           let (write, _, _) = tl.tl_label in
           if check_memory_access s write.w_addr then Nothing
           else Just (T_propagate_write <| tl with tl_suppl = Just (MWO_unmapped_address [write]) |>)
-      (* | T_fetch tl ->
-          let (addr, _) = tl.tl_label in
-          let fdo = s.program_memory addr in
-          Just (T_fetch <| tl with tl_suppl = Just fdo |>) *)
+      | T_fetch tl ->
+          if params.thread_fetch_from_ss then
+              Nothing
+            else
+              let addr = tl.tl_label.fr_addr in
+              let fdo = s.program_memory addr in
+              Just (T_fetch <| tl with tl_suppl = Just (Fetched_FDO fdo) |>)
       | _ -> Nothing
       end
       (* if the transition was not handled yet, let storage handle it *)
@@ -370,7 +374,7 @@ let enumerate_transitions_of_system
               | Just ioid ->
                   [t | forall (t MEM thread_transs) | ioid_of_thread_trans t = ioid]
               end
-              $> List.concatMap (thread_trans_to_trans s_model state))
+              $> List.concatMap (thread_trans_to_trans state.model.t s_model state))
           thread_transitions
     in
 
