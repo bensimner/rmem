@@ -72,7 +72,7 @@ let read_footprint_of_trans (transition: trans 'ts 'ss) : maybe footprint =
   | T_trans (T_sync tsl _) ->
       match tsl with
       | T_fetch _                 -> Nothing (* TODO: read fp from T_fetch? *)
-      | T_propogate_cache_maintenance _ -> Nothing
+      | T_propagate_cache_maintenance _ -> Nothing
       | T_mem_read_request tl ->
           let (r, _, _, _) = tl.tl_label in
           Just r.r_addr
@@ -149,7 +149,7 @@ let write_footprints_of_trans (transition: trans 'ts 'ss) : list footprint =
   | T_trans (T_sync tsl _) ->
       match tsl with
       | T_fetch _                       -> []
-      | T_propogate_cache_maintenance _ -> []
+      | T_propagate_cache_maintenance _ -> []
       | T_mem_read_request _            -> []
       | T_propagate_write tl            -> let (w, _, _) = tl.tl_label in [w.w_addr]
       | T_propagate_barrier _           -> []
@@ -281,6 +281,8 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
           | SS_NOP_read_response_memory _ _ _ _  -> false
           | SS_Flowing_seg_read_response _ _     -> false
           | SS_Flowing_mem_read_response _ _     -> true
+          | SS_Flat_thread_ic _ _                -> true
+          | SS_Flat_ic_finish _                  -> false
           end
       end
 
@@ -323,7 +325,7 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
       | T_sync tsl _ ->
           match tsl with
           | T_fetch _                      -> false
-          | T_propogate_cache_maintenance _ -> false
+          | T_propagate_cache_maintenance _ -> false
           | T_mem_read_request _           -> false
           | T_propagate_write tl           -> false
           | T_propagate_barrier _          -> (is_flat_model params.t)

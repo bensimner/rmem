@@ -423,8 +423,8 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (T_fetch _, _) -> 1
     | (_, T_fetch _) -> -1
 
-    | (T_propogate_cache_maintenance tl1, T_propogate_cache_maintenance tl2) ->
-        let cmp (cmk1, addr1) (cmk2, addr2) = 
+    | (T_propagate_cache_maintenance tl1, T_propagate_cache_maintenance tl2) ->
+        let cmp {cmr_cmk=cmk1; cmr_addr=addr1} {cmr_cmk=cmk2; cmr_addr=addr2} =
             cmps [ (fun () -> Sail_impl_base.addressCompare addr1 addr2)
                  ; (fun () ->
                      (match (cmk1, cmk2) with
@@ -436,8 +436,8 @@ let fuzzy_compare_transitions trans1 trans2 =
                  ]
         in
         cmp_tl cmp tl1 tl2
-    | (T_propogate_cache_maintenance _, _) -> 1
-    | (_, T_propogate_cache_maintenance _) -> -1
+    | (T_propagate_cache_maintenance _, _) -> 1
+    | (_, T_propagate_cache_maintenance _) -> -1
 
     | (T_Promising_mem_satisfy_read tl1, T_Promising_mem_satisfy_read tl2) -> -1
         (* let cmp (read1,_) (read2,_) = read_requestCompare read1 read2 in

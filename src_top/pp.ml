@@ -1470,6 +1470,15 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
         ("icache update", None)
 
 
+let pp_cmr cmr m =
+    sprintf "(%s) %s"
+          (match cmr.cmr_cmk with
+          | CM_DC -> "DC"
+          | CM_IC -> "IC"
+          )
+          (pp_address m (Some cmr.cmr_ioid) cmr.cmr_addr)
+
+
 let pp_ss_sync_label ?(graph=false) m t =
   match t with
   | SS_PLDI11_acknowledge_sync_barrier b ->
@@ -1507,6 +1516,18 @@ let pp_ss_sync_label ?(graph=false) m t =
           (colour_memory_action m (pp_mrs_uncoloured m read_request.r_ioid source))
       in
       ("memory read request response from storage-memory", Some info)
+  | SS_Flat_thread_ic (cmr, tid) -> 
+      let info =
+          sprintf "%s from Thread %d" 
+            (pp_cmr cmr m)
+            tid
+      in
+      ("perform ic", Some info)
+  | SS_Flat_ic_finish cmr ->
+      let info =
+          (pp_cmr cmr m)
+      in
+      ("finish ic", Some info)
 
 
 let pp_thread_trans_prefix ?(graph=false) m tid ioid =
@@ -1765,6 +1786,7 @@ let pp_t_sync_label ?(graph=false) m t =
           (match f with
            | Fetched_FDO fdo -> (pp_fdo ~suppress_opcode:graph m fdo a)
            | Fetched_Mem mrs -> (pp_mrs_uncoloured m (tc.tc_ioid) mrs))
+          (* TODO: wire up disassembler + pp *)
           begin match m.pp_dwarf_static with
           | Some ds ->
               begin match pp_dwarf_source_file_lines m ds (* pp_actual_line: *) false a with 
@@ -1776,15 +1798,15 @@ let pp_t_sync_label ?(graph=false) m t =
       in
       ("fetch instruction", Some info)
 
-  | T_propogate_cache_maintenance {tl_label=(cmk, addr); tl_cont=tc} ->
+  | T_propagate_cache_maintenance {tl_label=cmr} ->
       let info =
           sprintf "%s %s"
-              (pp_address m (Some tc.tc_ioid) addr)
-              (match cmk with
+              (pp_address m (Some cmr.cmr_ioid) cmr.cmr_addr)
+              (match cmr.cmr_cmk with
                | CM_DC -> "DC"
                | CM_IC -> "IC")
       in
-      ("propogate cache maintenance", Some info)
+      ("propagate cache maintenance", Some info)
 
 
   | T_POP_tm_start {tl_suppl = None} -> assert false
@@ -2125,14 +2147,41 @@ let flat_pp_ui_storage_subsystem_state m model ss =
   let old_writes = 
     pp_changed3_list m pp_write_uncoloured ss.ui_flat_ss_old_writes in
 
+  let buffer =
+    pp_changed3_list m pp_write_uncoloured ss.ui_flat_ss_fetch_buf in
+
+  let pp_icache (tid, ic) =
+    let pp_pair (addr, mrs) =
+      String.concat ""
+        [(pp_address m None addr);
+         pp_mapsto m;
+         (pp_mrs_uncoloured m (0,0) mrs);
+        ] in
+    sprintf "Thread %d: [%s]"
+      tid
+      (pp_list m pp_pair (Pmap.bindings_list ic.ic_memory)) in
+  let icaches =
+    sprintf "[%s]"
+      (pp_list m pp_icache (Pmap.bindings_list ss.ui_flat_ss_icaches)) in
+  let pp_ic_write (addr, (cmr, tids)) =
+      sprintf "(%s): %d"
+        (pp_address m None addr)
+        (List.length tids) in
+  let ic_writes =
+    sprintf "[%s]"
+      (pp_list m pp_ic_write (Pmap.bindings_list ss.ui_flat_ss_ic_writes)) in
+
+
   (*begin match m.Globals.pp_kind with
   | Ascii ->*)
     String.concat ""
       [sprintf "%s:"                      (colour_bold m "Storage subsystem state (flat)"); !linebreak;
        sprintf "  Memory     = %s"            memory; !linebreak;
        if m.pp_kind <> Hash then "" else
-       sprintf "  Old writes = %s"            old_writes; !linebreak
-       ;
+       sprintf "  Old writes = %s"            old_writes; !linebreak;
+       sprintf "  Icaches = %s"                 icaches; !linebreak;
+       sprintf "  Buffer = %s"                  buffer; !linebreak;
+       sprintf "  IC waiting = %s"              ic_writes; !linebreak;
       ]
   (*| Html ->
   end*)

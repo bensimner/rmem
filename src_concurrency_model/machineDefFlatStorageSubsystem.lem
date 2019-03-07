@@ -188,6 +188,7 @@ let flat_ss_initial_state params tids initial_writes =
   <|  flat_ss_memory_writes     = complete_writes initial_writes;
       flat_ss_fetch_buf         = [];
       flat_ss_icaches           = Map.fromList [(tid, empty_icache tid) | forall (tid MEM (Set_extra.toList tids)) | true];
+      flat_ss_ic_writes         = Map.empty;
       flat_ss_old_writes        = initial_writes;
       flat_ss_exclusive_reads   = Map.empty;
   |>
@@ -305,28 +306,32 @@ let flat_clear_icaches params state addr =
     in
     Map.map clear_icache icaches
 
-let flat_propogate_dc params state addr =
+let flat_propagate_dc params state cmr addr =
   <| state with flat_ss_fetch_buf=flat_flow_writes params state addr |>
 
-let flat_propogate_ic params state addr =
-  <| state with flat_ss_icaches=flat_clear_icaches params state addr |>
+let flat_propagate_ic params state cmr addr =
+  let ic_writes = state.flat_ss_ic_writes in
+  let tids = Set_extra.toList (Map.domain (state.flat_ss_icaches)) in
+  let ic_writes' = Map.insert addr (cmr, tids) ic_writes in
+  <| state with flat_ss_ic_writes=ic_writes' |>
 
-let flat_propogate_cache_maintenance params state tl =
+let flat_propagate_cache_maintenance params state tl =
     let state_cont =
         fun () ->
-            match tl.tl_label with
-            | (CM_DC, addr) -> flat_propogate_dc params state addr
-            | (CM_IC, addr) -> flat_propogate_ic params state addr
+            let cmr = tl.tl_label in
+            match (cmr.cmr_cmk, cmr.cmr_addr) with
+            | (CM_DC, addr) -> flat_propagate_dc params state cmr addr
+            | (CM_IC, addr) -> flat_propagate_ic params state cmr addr
             end
     in
-    return (T_propogate_cache_maintenance <| tl with tl_suppl = Just () |>, Just state_cont)
+    return (T_propagate_cache_maintenance <| tl with tl_suppl = Just () |>, Just state_cont)
 
 let flat_ss_receive_transition_guarded params state = function
   | T_propagate_write tl ->            flat_propagate_write params state tl
   | T_Flat_mem_satisfy_read tl ->      flat_satisfy_read params state tl
   | T_Flat_try_commit_store_cond tl -> flat_try_commit_store_cond params state tl
   | T_try_store_excl tl ->             flat_try_store_excl params state tl
-  | T_propogate_cache_maintenance tl -> flat_propogate_cache_maintenance params state tl
+  | T_propagate_cache_maintenance tl -> flat_propagate_cache_maintenance params state tl
   | T_mem_read_request tl ->           fail
   | T_propagate_barrier tl ->          fail
   | T_PLDI11_mem_satisfy_read _ ->     fail
@@ -366,9 +371,48 @@ let enumerate_icache_update_transitions params (state : flat_storage_subsystem_s
     in
     enumerate_addrs (Map.domain icache.ic_memory)
 
-let enumerate_transitions_ss params state =
+let enumerate_icache_updates params state =
     let caches = Set_extra.toList (Map.range state.flat_ss_icaches) in
     List.concat (List.map (enumerate_icache_update_transitions params state) caches)
+
+let trans_ic_for_thread _params state
+    (cmr : cache_maintenance_request)
+    (addr : address)
+    (tid : thread_id) =
+        let ss_cont =
+            fun () ->
+                let ic_writes = state.flat_ss_ic_writes in
+                match Map.lookup addr ic_writes with
+                | Nothing -> failwith "trans-ic-for-thread addr not exist"
+                | Just (cmr, tids) -> 
+                    let tids' = List.filter (fun t -> not (t = tid)) tids in
+                    let ic_writes' = Map.insert addr (cmr, tids') ic_writes in
+                    <| state with flat_ss_ic_writes=ic_writes' |>
+                end
+        in
+        [SS_sync (SS_Flat_thread_ic cmr tid) ss_cont ()]
+
+let enumerate_ic_for_addr params state (addr, (cmr, tids)) =
+    match tids with
+    | [] ->
+        let ss_cont =
+            fun () ->
+                let ic_writes = state.flat_ss_ic_writes in
+                let ic_writes' = Map.delete addr ic_writes in
+                <| state with flat_ss_ic_writes=ic_writes' |>
+        in
+        [SS_sync (SS_Flat_ic_finish cmr) ss_cont ()]
+    | _ ->
+        List.concat (List.map (trans_ic_for_thread params state cmr addr) tids)
+    end
+
+let enumerate_ic_transitions params state =
+    let ic_writes = state.flat_ss_ic_writes in
+    List.concat (List.map (enumerate_ic_for_addr params state) (Map_extra.toList ic_writes))
+
+let enumerate_transitions_ss params state =
+    enumerate_icache_updates params state ++
+    enumerate_ic_transitions params state
 
 let flat_make_ui_storage_subsystem_state
     (ss: maybe flat_storage_subsystem_state)
@@ -396,6 +440,9 @@ let flat_make_ui_storage_subsystem_state
           | Nothing ->
              unchanged3_list ss'.flat_ss_old_writes
           end;
+        ui_flat_ss_icaches = ss'.flat_ss_icaches;
+        ui_flat_ss_fetch_buf = unchanged3_list ss'.flat_ss_fetch_buf;
+        ui_flat_ss_ic_writes = ss'.flat_ss_ic_writes;
     |>
 
 

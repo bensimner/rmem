@@ -2269,6 +2269,29 @@ let handle_write_memv_outcome
   in
   [T_only (make_label state iic (T_mem_potential_write potential_writes) state')]
 
+let handle_cache_maintenance
+    (params: thread_params)
+    (i_sem:  instruction_semantics)
+    (state:  thread_state)
+    (iic:    instruction_in_context)
+    (cmk:    cache_maintenance_kind)
+    (addr:   address)
+    : list (thread_trans thread_state)
+  =
+  let i = iic.iic_instance in
+  let state' =
+      fun () ->
+        state
+        $> make_thread_cont_res {} {}
+  in
+  let lbl =
+      <| cmr_cmk = cmk;
+         cmr_ioid = i.instance_ioid;
+         cmr_addr = addr;
+      |>
+  in
+  [T_sync (T_propagate_cache_maintenance (make_label state iic lbl state')) ()]
+
 
 let handle_barrier_outcome
     (params: thread_params)
@@ -3921,6 +3944,16 @@ let enumerate_transitions_of_instruction
 (* val debug_print : string -> unit *)
 (* declare ocaml target_rep function debug_print s = `Printf.eprintf` "%s%!" s *)
 
+let enumerate_test_cache_maintenance params
+    (i_sem:  instruction_semantics)
+    (state:  thread_state)
+    (iic:    instruction_in_context)
+    : list (thread_trans thread_state)
+    =
+  let i = iic.iic_instance in
+  handle_cache_maintenance params i_sem state iic CM_DC i.program_loc ++
+  handle_cache_maintenance params i_sem state iic CM_IC i.program_loc
+
 (* TODO: proper fixed-point or enumerate all addrs *)
 let potential_next_addresses_of_instruction_relaxed
     (params: thread_params)
@@ -4040,7 +4073,6 @@ let initial_fetch_transition_of_thread
   in
   [T_only tl]
 
-
 let enumerate_failed_transaction_transition params state = 
   option_guard state.transaction >>= fun (ts,cont) ->
 
@@ -4085,6 +4117,11 @@ let enumerate_transitions_of_thread params
     catch_thread_errors state.thread iic.iic_instance.instance_ioid $ fun () ->
       enumerate_init_fetch_transitions_of_instruction params i_sem state iic) ++
 
+  (* transitions for initialising the fetch of successor instructions *)
+  (un_old_instructions state >>= fun iic ->
+    catch_thread_errors state.thread iic.iic_instance.instance_ioid $ fun () ->
+      enumerate_test_cache_maintenance params i_sem state iic) ++
+
   (* failed transaction transitions *)
   enumerate_failed_transaction_transition params state
 
@@ -4112,6 +4149,34 @@ let thread_receive_transition params (state : thread_state) label =
     in
     Just <| tc_tid = state.thread; tc_ioid = b.b_ioid; tc_cont = state' |>
   in
+  let flat_finish_ic (cmr : cache_maintenance_request) =
+    let state' = fun () ->
+      failwith "TODO: finish IC"
+    in
+    Just <| tc_tid = state.thread; tc_ioid = cmr.cmr_ioid; tc_cont = state' |>
+  in
+  let flat_ic_clear (cmr : cache_maintenance_request) =
+    let state' = fun () ->
+      let it = state.instruction_tree in
+      let it' =
+        instruction_tree_map
+          (fun _ i _ ->
+            if i.program_loc = cmr.cmr_addr then
+                match i.micro_op_state with
+                | MOS_fetch _ -> <| i with micro_op_state=MOS_fetch Nothing |>
+                | s -> i
+                end
+            else
+                i)
+          []
+          it
+      in
+      <| state with instruction_tree=it' |>
+      $> make_thread_cont_res {} {}
+    in
+    Just <| tc_tid = state.thread; tc_ioid = cmr.cmr_ioid; tc_cont = state' |>
+  in
+
 
   match label with
   (* PLDI transitions: *)
@@ -4124,6 +4189,9 @@ let thread_receive_transition params (state : thread_state) label =
   (* Flowing transitions: *)
   | SS_Flowing_seg_read_response rr mrs    -> pop_sat_read rr mrs
   | SS_Flowing_mem_read_response rr mrs    -> pop_sat_read rr mrs
+  (* Flat Transitions *)
+  | SS_Flat_ic_finish cmr                  -> flat_finish_ic cmr
+  | SS_Flat_thread_ic cmr _                -> flat_ic_clear  cmr
   end
 
 (* based on MachineDefCandidateExecution.footprints_of_cex_instruction_instance *)

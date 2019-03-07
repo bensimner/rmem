@@ -623,12 +623,26 @@ type icache =
      ic_tid: thread_id;
   |>
 
+type cache_maintenance_kind =
+    | CM_DC
+    | CM_IC
+
+
+type cache_maintenance_request = 
+    <| cmr_addr: address;
+       cmr_ioid: ioid;
+       cmr_cmk: cache_maintenance_kind
+    |>
+
+
 type flat_storage_subsystem_state =
   <|  (* the currently visible write-slices in memory;
       invariant: no overlapping slices *)
       flat_ss_memory_writes : list (write * slices);
-      (* the per-thread icache + set of misses *)
+      (* the per-thread icache *)
       flat_ss_icaches : map thread_id icache;
+      (* set of addresses to be IC'd *)
+      flat_ss_ic_writes : map address (cache_maintenance_request * (list thread_id));
       (* the global buffer of writes that can be fetched from *)
       flat_ss_fetch_buf : list write;
       (* record writes that flowed to memory in the order in which they
@@ -1571,7 +1585,7 @@ let principal_ioid_of_ss_only_trans = function
   | SS_Flowing_partially_satisfy_read r _        -> r.r_ioid
   | SS_TSO_propagate_write_to_memory w           -> w.w_ioid
   | SS_Promising_stop_promising                  -> (0,0) (* TODO: fix? *)
-  | SS_Flat_icache_update _ _ _                  -> failwith "principle_ioid_of_ss_only Flat_icache_update TODO"
+  | SS_Flat_icache_update _ _ _                  -> (0, 0) (* TODO: is this right? *)
   end
 
 (* transitions that are initiated by the storage subsystem but also change the thread state *)
@@ -1587,6 +1601,9 @@ type ss_sync_trans =
   (*** Flowing transitions: ***)
   | SS_Flowing_seg_read_response of read_request * memory_read_source
   | SS_Flowing_mem_read_response of read_request * memory_read_source
+  (*** Flat transitions ***)
+  | SS_Flat_thread_ic of cache_maintenance_request * thread_id
+  | SS_Flat_ic_finish of cache_maintenance_request
 
 let tid_of_ss_sync_trans = function
   | SS_PLDI11_acknowledge_sync_barrier b -> b.b_thread
@@ -1595,6 +1612,8 @@ let tid_of_ss_sync_trans = function
   | SS_NOP_read_response_memory rr _ _ _ -> rr.r_thread
   | SS_Flowing_seg_read_response rr _    -> rr.r_thread
   | SS_Flowing_mem_read_response rr _    -> rr.r_thread
+  | SS_Flat_thread_ic _ tid              -> tid
+  | SS_Flat_ic_finish cmr -> fst (cmr.cmr_ioid)
   end
 
 let principal_ioid_of_ss_sync_trans = function
@@ -1604,6 +1623,8 @@ let principal_ioid_of_ss_sync_trans = function
   | SS_NOP_read_response_memory rr _ _ _ -> rr.r_ioid
   | SS_Flowing_seg_read_response rr _    -> rr.r_ioid
   | SS_Flowing_mem_read_response rr _    -> rr.r_ioid
+  | SS_Flat_thread_ic cmr _ -> cmr.cmr_ioid
+  | SS_Flat_ic_finish cmr -> cmr.cmr_ioid
   end
 
 type thread_cont_res 'ts =
@@ -1740,9 +1761,6 @@ type fetch_request =
        fr_tid : thread_id;
     |>
 
-type cache_maintenance_kind =
-    | CM_DC
-    | CM_IC
 
 
 (** NOTE: ALL THE CONSTRUCTORS SHOULD HAVE THE TYPE "thread_label 'l 's" *)
@@ -1751,8 +1769,8 @@ type thread_sync_label 'ts =
       fetch_request
       fetched  (* the value we fetched *)
       'ts
-  | T_propogate_cache_maintenance of thread_label
-      (cache_maintenance_kind * address)
+  | T_propagate_cache_maintenance of thread_label
+      cache_maintenance_request
       unit
       'ts
   | T_mem_read_request of thread_label
@@ -1822,7 +1840,7 @@ type thread_sync_label 'ts =
 
 let tid_of_thread_sync_trans = function
   | T_fetch tl                                -> tl.tl_cont.tc_tid
-  | T_propogate_cache_maintenance tl          -> tl.tl_cont.tc_tid
+  | T_propagate_cache_maintenance tl          -> tl.tl_cont.tc_tid
   | T_mem_read_request tl                     -> tl.tl_cont.tc_tid
   | T_propagate_write tl                      -> tl.tl_cont.tc_tid
   | T_propagate_barrier tl                    -> tl.tl_cont.tc_tid
@@ -1843,7 +1861,7 @@ let tid_of_thread_sync_trans = function
 
 let ioid_of_thread_sync_trans = function
   | T_fetch tl                                -> tl.tl_cont.tc_ioid
-  | T_propogate_cache_maintenance tl          -> tl.tl_cont.tc_ioid
+  | T_propagate_cache_maintenance tl          -> tl.tl_cont.tc_ioid
   | T_mem_read_request tl                     -> tl.tl_cont.tc_ioid
   | T_propagate_write tl                      -> tl.tl_cont.tc_ioid
   | T_propagate_barrier tl                    -> tl.tl_cont.tc_ioid
@@ -2037,6 +2055,12 @@ type flat_ui_storage_subsystem_state 'ts 'ss =
       ui_flat_ss_memory_writes : list (changed3 (write * slices));
       (* storage transitions: none *)
       ui_flat_ss_old_writes : list (changed3 write);
+      (* set of addresses to be IC'd *)
+      ui_flat_ss_ic_writes : map address (cache_maintenance_request * (list thread_id));
+      (* the set of instruction caches *)
+      ui_flat_ss_icaches : map thread_id icache;  (* TODO: define ui_icache with diff *)
+      (* the global buffer of writes that can be fetched from *)
+      ui_flat_ss_fetch_buf : list (changed3 write);
   |>
 
 type tso_ui_storage_subsystem_state 'ts 'ss =

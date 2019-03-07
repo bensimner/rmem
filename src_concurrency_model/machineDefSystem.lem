@@ -252,8 +252,11 @@ let start_thread
 
 
 (* process a thread-transition and produce a list of system-transitions *)
-let thread_trans_to_trans (params : thread_params) (s_model : machineStorageSubsystem 'ts 'ss) 
-      (s:  system_state 'ts 'ss) : thread_trans 'ts -> list (trans 'ts 'ss) = 
+let thread_trans_to_trans
+    (params : thread_params)
+    (s_model : machineStorageSubsystem 'ts 'ss)
+    (s:  system_state 'ts 'ss)
+    : thread_trans 'ts -> list (trans 'ts 'ss) = 
   function
   (* for the T_only  transitions, just lift them *)
   | T_only tl -> [(T_trans (T_only tl))]
@@ -529,7 +532,7 @@ let system_state_after_transition
     | T_sync tsl ssc ->
       match tsl with
       | T_fetch tl                      -> update_state ssc (Just (next_thread_of_tl tl))
-      | T_propogate_cache_maintenance tl-> update_state ssc (Just (next_thread_of_tl tl))
+      | T_propagate_cache_maintenance tl-> update_state ssc (Just (next_thread_of_tl tl))
       | T_mem_read_request tl           -> update_state ssc (Just (next_thread_of_tl tl))
       | T_propagate_write tl            -> update_state ssc (Just (next_thread_of_tl tl))
       | T_propagate_barrier tl          -> update_state ssc (Just (next_thread_of_tl tl))
