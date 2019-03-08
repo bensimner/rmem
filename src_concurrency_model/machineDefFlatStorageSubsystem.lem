@@ -300,7 +300,7 @@ let flat_try_fetch params state tl =
 
 let flat_flow_writes _params state addr =
     let fetch_buf = state.flat_ss_fetch_buf in
-    List.filter (write_is_to_addr addr) fetch_buf
+    List.filter (fun w -> not (write_is_to_addr addr w)) fetch_buf
 
 let flat_clear_icaches params state addr =
     let icaches = state.flat_ss_icaches in
