@@ -211,6 +211,7 @@ type instruction_ast =
   | X86_instr of X86_embed_types.ast
   | Fetch_error
   | Unfetched
+  | Fetched of opcode
 
 type decode_error_t =
   | Unsupported_instruction_error of opcode * instruction_ast
@@ -932,7 +933,7 @@ type fetch_and_decode_outcome =
 
 type fetched =
   | Fetched_FDO of fetch_and_decode_outcome  (* for programs without machine code (like litmus tests) *)
-  | Fetched_Mem of memory_read_source
+  | Fetched_Mem of memory_read_source * fetch_and_decode_outcome
 
 type micro_op_state =
   | MOS_fetch               of maybe fetched
@@ -1760,6 +1761,7 @@ type fetch_request =
     <| fr_addr : address;
        fr_kind : fetch_kind;
        fr_tid : thread_id;
+       fr_decode : address -> memory_read_source -> fetch_and_decode_outcome;
     |>
 
 

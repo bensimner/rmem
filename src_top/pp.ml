@@ -747,13 +747,14 @@ let pp_opcode m (op:Sail_impl_base.opcode) =
 let pp_reg m r =
   Printing_functions.reg_name_to_string r
 
-let pp_instruction
-      (symbol_table: ((Sail_impl_base.address * size) * string) list)
+let pp_instruction m
+      (symbol_table: ((Sail_impl_base.address * MachineDefTypes.size) * string) list)
       (inst: MachineDefTypes.instruction_ast)
       (program_loc: Sail_impl_base.address) =
   begin match inst with
   | Fetch_error -> "fetch error"
   | Unfetched -> "unknown"
+  | Fetched op -> sprintf "fetched %s" (pp_opcode m op)
   | PPCGEN_instr _ ->
      let i = PPCGenTransSail.shallow_ast_to_herdtools_ast inst in
      PPCGenBase.pp_instruction (PPMode.Ascii) i
@@ -845,7 +846,7 @@ let pp_bool m b =
 
 let pp_decode_error m de addr = match de with
   | MachineDefTypes.Unsupported_instruction_error0 (_opcode, (i:MachineDefTypes.instruction_ast)) ->
-     sprintf "Unsupported instruction (%s)" (pp_instruction m.pp_symbol_table i addr)
+     sprintf "Unsupported instruction (%s)" (pp_instruction m m.pp_symbol_table i addr)
   | MachineDefTypes.Not_an_instruction_error0 (op:opcode) -> sprintf "Not an instruction (value: %s)" (pp_opcode m op)
   | MachineDefTypes.Internal_decode_error (s:string) -> "Internal error "^s
 
@@ -1365,7 +1366,7 @@ let pp_fdo ?(suppress_opcode=false) m fdo addr =
   match fdo with
   | FDO_success (a,mop,inst) ->
       sprintf "%s%s"
-        (pp_instruction m.pp_symbol_table inst addr)
+        (pp_instruction m m.pp_symbol_table inst addr)
         (if not suppress_opcode then " " ^ (pp_maybe_opcode m mop) else "")
   | FDO_illegal_fetch_address ->
         let _ = Debug.print_log () in
@@ -1535,6 +1536,18 @@ let pp_thread_trans_prefix ?(graph=false) m tid ioid =
   else ""
 
 
+let pp_fetched ?(graph=false) m addr ioid f =
+  let addr_info = pp_address m (Some ioid) addr in
+  match f with
+   | Fetched_FDO fdo ->
+        sprintf "%s %s" addr_info (pp_fdo ~suppress_opcode:graph m fdo addr)
+   | Fetched_Mem (mrs, fdo) ->
+        sprintf "%s %s |%s|"
+            addr_info
+            (pp_mrs_uncoloured m ioid mrs)
+            (pp_fdo ~suppress_opcode:graph m fdo addr)
+
+
 let pp_t_only_label ?(graph=false) m tl =
   let ioid = tl.tl_cont.tc_ioid in
   match tl.tl_label with
@@ -1582,7 +1595,7 @@ let pp_t_only_label ?(graph=false) m tl =
       ("instantiate memory write values of store instruction", Some info)
 
   | T_finish (addr, instr) ->
-      let instr_pped = pp_instruction m.pp_symbol_table instr addr in
+      let instr_pped = pp_instruction m m.pp_symbol_table instr addr in
       ("finish instruction: " ^ instr_pped, None)
 
   | T_finish_load_of_rmw ->
@@ -1634,11 +1647,7 @@ let pp_t_only_label ?(graph=false) m tl =
       let info = (pp_address m (Some ioid) addr) in
       ("init fetch next instruction", Some info)
   | T_decode (addr, f) ->
-      let info =
-        (match f with
-        | Fetched_FDO fdo -> (pp_fdo ~suppress_opcode:graph m fdo addr)
-        | Fetched_Mem mrs -> (pp_mrs_uncoloured m (ioid) mrs))
-      in
+      let info = pp_fetched ~graph m addr ioid f in
       ("decode", Some info)
 
 let pp_t_sync_label ?(graph=false) m t =
@@ -1780,22 +1789,7 @@ let pp_t_sync_label ?(graph=false) m t =
   | T_fetch {tl_suppl = None} -> assert false
   | T_fetch {tl_label = tl; tl_suppl = (Some f); tl_cont = tc} ->
       let a = tl.fr_addr in
-      let info =
-        sprintf "%s %s%s"
-          (pp_address m (Some tc.tc_ioid) a)
-          (match f with
-           | Fetched_FDO fdo -> (pp_fdo ~suppress_opcode:graph m fdo a)
-           | Fetched_Mem mrs -> (pp_mrs_uncoloured m (tc.tc_ioid) mrs))
-          (* TODO: wire up disassembler + pp *)
-          begin match m.pp_dwarf_static with
-          | Some ds ->
-              begin match pp_dwarf_source_file_lines m ds (* pp_actual_line: *) false a with 
-              | Some s -> sprintf " [%s]" s
-              | None -> ""
-              end
-          | None -> ""
-          end
-      in
+      let info = pp_fetched ~graph m a (tc.tc_ioid) f in
       ("fetch instruction", Some info)
 
   | T_propagate_cache_maintenance {tl_label=cmr} ->
@@ -2487,8 +2481,14 @@ let pp_micro_op_state_body indent addr ioid subreads potential_writes m mos =
 (*  let indent = if not(m.pp_screenshot) then indent else indent^"  " in*)
   match mos with
   | MOS_fetch None     -> "MOS-fetch Unfetched"
-  | MOS_fetch (Some (Fetched_FDO fdo)) -> "MOS-fetch (from program) " ^ pp_fdo m fdo addr
-  | MOS_fetch (Some (Fetched_Mem mrs)) -> "MOS-fetch fetched " ^ pp_mrs_uncoloured m ioid mrs
+  | MOS_fetch (Some f) ->
+      let fetched_type =
+          (match f with
+           | Fetched_FDO _ -> "(from program)"
+           | _ -> "fetch")
+      in
+      let fetch_info = pp_fetched ~graph:false m addr ioid f in
+      sprintf "MOS-fetch %s %s" fetched_type fetch_info
   | MOS_plain is -> pp_outcome_S indent m is
   | MOS_wait_IC is  -> pp_outcome_S indent m is
 
@@ -2555,7 +2555,7 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
       (pp_address m (Some i.ui_instance_ioid) i.ui_program_loc)
       (
        let finished = match i.ui_finished with C2b_changed x -> x | C2b_unchanged x -> x in
-       let s = pad pad_instruction (pp_instruction m.pp_symbol_table i.ui_instruction i.ui_program_loc) in
+       let s = pad pad_instruction (pp_instruction m m.pp_symbol_table i.ui_instruction i.ui_program_loc) in
        if finished then colour_finished_instruction m s else colour_unfinished_instruction m s)
       (if not (m.pp_style = Globals.Ppstyle_screenshot) then pp_maybe_opcode m i.ui_program_opcode ^ " " else "\n") in
 
@@ -2660,7 +2660,7 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
       ^ " " ^
        (
         let finished = match i.ui_finished with C2b_changed x -> x | C2b_unchanged x -> x in
-        let s = pad pad_instruction (pp_instruction m.pp_symbol_table i.ui_instruction i.ui_program_loc) in
+        let s = pad pad_instruction (pp_instruction m m.pp_symbol_table i.ui_instruction i.ui_program_loc) in
         if finished then colour_finished_instruction m s else colour_unfinished_instruction m s)
       ^ "  " ^
       pad 0  (* was pad 2, to indent reg r/w iff there are no mem r/w  *)
@@ -2705,7 +2705,7 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
              indent
              (pad 2 (pp_pretty_ioid_padded i.ui_instance_ioid))
              (pp_address m (Some i.ui_instance_ioid) i.ui_program_loc)
-             (colour_bold m (pad pad_instruction (pp_instruction m.pp_symbol_table i.ui_instruction i.ui_program_loc)))
+             (colour_bold m (pad pad_instruction (pp_instruction m m.pp_symbol_table i.ui_instruction i.ui_program_loc)))
            ^ sprintf "%s%s%s\n"
 
                (pad
@@ -2830,7 +2830,7 @@ let pp_ui_instruction_list m tid (indent:string) t : string =
        indent
        (pad 1 (pp_pretty_ioid i.instance_ioid))
  (*      (pp_address m i.ui_program_loc)*)
-       (pad 6 (pp_instruction m.pp_symbol_table i.instruction i.program_loc))
+       (pad 6 (pp_instruction m m.pp_symbol_table i.instruction i.program_loc))
  (*      (pp_maybe_opcode m i.ui_program_opcode) *)
 
  let rec pp_plain_instruction_tree m tid (indent:string) (t:MachineDefTypes.instruction_tree) =
@@ -3094,7 +3094,7 @@ let pp_transition_history_trans m s j trans =
           pad (!transition_history_loc_max_width) s in
         ppd_loc
         ^ " "
-        ^ let s = pad pad_instruction (pp_instruction m.pp_symbol_table i.ui_instruction i.ui_program_loc) in s
+        ^ let s = pad pad_instruction (pp_instruction m m.pp_symbol_table i.ui_instruction i.ui_program_loc) in s
         ^  " "
         ^ let ppd_dwarf_source_file_lines =
           (match !Globals.use_dwarf, m.pp_dwarf_static with

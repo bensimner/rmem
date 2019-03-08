@@ -144,7 +144,7 @@ open Globals
    (match i.cex_instruction_kind with
    | IK_barrier _ -> String.concat "" (List.map (fun b -> Pp.pp_pretty_eiid m b.beiid) i.cex_committed_barriers)
    | _ -> "")
-   (*^ "i"*) ^ baseid_of_instruction i ^ " " ^ Pp.pp_instruction m.pp_symbol_table i.cex_instruction i.cex_program_loc
+   (*^ "i"*) ^ baseid_of_instruction i ^ " " ^ Pp.pp_instruction m m.pp_symbol_table i.cex_instruction i.cex_program_loc
 
 
  let portid_of_write (w:write) = str_to_write_portid (Pp.pp_eiid w.weiid)

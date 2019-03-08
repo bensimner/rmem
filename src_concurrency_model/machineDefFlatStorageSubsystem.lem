@@ -234,7 +234,8 @@ let flat_try_fetch_atomic _params state tl =
     | Just mrs -> mrs
     end
   in
-  let tl' = <| tl with tl_suppl = Just (Fetched_Mem mrs) |> in
+  let fdo = tl.tl_label.fr_decode addr mrs in
+  let tl' = <| tl with tl_suppl = Just (Fetched_Mem mrs fdo) |> in
   [(T_fetch tl', Nothing)]
 
 (* TODO: check footprint/slices *)
@@ -284,7 +285,8 @@ let rec flat_try_fetch_relaxed params state tl =
           List.concat (List.map f mrss)
           (* failwith "flat_try_fetch_relaxed nothing in icache" *)
       | Just mrs ->
-          [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs) |>), Just (fun() -> state))]
+          let fdo = tl.tl_label.fr_decode addr mrs in
+          [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs fdo) |>), Just (fun() -> state))]
       end
   end
 

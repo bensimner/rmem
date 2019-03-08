@@ -282,7 +282,7 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
           | SS_Flowing_seg_read_response _ _     -> false
           | SS_Flowing_mem_read_response _ _     -> true
           | SS_Flat_thread_ic _ _                -> true
-          | SS_Flat_ic_finish _                  -> false
+          | SS_Flat_ic_finish _                  -> true
           end
       end
 
