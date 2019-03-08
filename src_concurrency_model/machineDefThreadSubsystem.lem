@@ -2307,11 +2307,13 @@ let cache_maintenance_trans_dc
     (i_sem:  instruction_semantics)
     (state:  thread_state)
     (iic:    instruction_in_context)
-    (addr:   address) =
+    (addr:   address)
+    (o:      outcome_S) =
   let i = iic.iic_instance in
   let state' =
       fun () ->
-        state
+        let i' = <| i with micro_op_state = MOS_plain o |> in
+        <| state with instruction_tree = apply_tree_context iic.context (i', iic.subtree) |>
         $> make_thread_cont_res {} {}
   in
   let lbl =
@@ -3815,7 +3817,7 @@ let handle_dc_cvau
       match address_of_register_value value with
       | Nothing -> failwith "TODO: handle_dc_cvau fail invalid addr"
       | Just addr ->
-            cache_maintenance_trans_dc params i_sem state iic addr
+            cache_maintenance_trans_dc params i_sem state iic addr outcome
       end
 
 let create_opcode =
@@ -3957,7 +3959,7 @@ let enumerate_transitions_of_instruction
       handle_ic_ivau  params i_sem s iic v o
 
     (* DC *)
-    | Write_reg (Reg "data_cache_operation" 63 64 D_decreasing, v) o ->
+    | Write_reg (Reg "data_cache_operation_CVAU" 63 64 D_decreasing, v) o ->
       handle_dc_cvau params i_sem s iic v o
 
     (* normal outcomes *)
