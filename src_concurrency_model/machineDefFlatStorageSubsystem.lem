@@ -242,17 +242,18 @@ let flat_try_fetch_atomic _params state tl =
 let write_is_to_addr addr w =
     w.w_addr = (addr, 4)
 
+let mrs_from_write w =
+    <| mrs_footprint = w.w_addr;
+       mrs_value = ensure_just (w.w_value) "mrs_from_write ??";
+       mrs_writes_read_from = [write_with_complete_slice w];
+    |>
+
 let flat_fetch_from_relaxed _params state addr =
   let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
   let writes = state.flat_ss_fetch_buf in
   let flat_mem = state.flat_ss_memory_writes in
   let accept_writes = List.filter (write_is_to_addr addr) writes in
-  let mrss =
-    match maybe_all (List.map (fun w -> w.w_value) accept_writes) with
-    | Nothing -> failwith "flat_try_fetch_relaxed write had no value"
-    | Just vs -> [] (* TODO: map to mrs *)
-    end
-  in
+  let mrss = List.map mrs_from_write accept_writes in
   let mrss =
     match mrs_from_writes fp flat_mem with
     | Nothing -> mrss
