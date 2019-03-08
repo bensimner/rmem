@@ -3944,6 +3944,7 @@ let enumerate_transitions_of_instruction
   match iic.iic_instance.micro_op_state with
   | MOS_fetch Nothing  -> enumerate_fetch_transitions_of_instruction params i_sem s iic
   | MOS_fetch (Just _) -> enumerate_decode_transitions_of_instruction params i_sem s iic
+  | MOS_wait_IC _ -> []
   | MOS_plain is ->
     match fst is with
     (* these are special outcomes that we abuse instead of adding new effect kinds *)
