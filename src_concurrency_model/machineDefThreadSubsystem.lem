@@ -4015,10 +4015,15 @@ let potential_next_addresses_of_instruction_relaxed
     (iic:    instruction_in_context)
     : set address
   =
-    let branch_targets = Map.findWithDefault state.thread Map.empty params.branch_targets in
-    let addrs = Map.findWithDefault iic.iic_instance.program_loc Set.empty branch_targets in
-    let succ = {successor_fetch_address iic.iic_instance} in
-    succ union addrs
+    match iic.iic_instance.micro_op_state with
+    | MOS_fetch _ ->
+        let branch_targets = Map.findWithDefault state.thread Map.empty params.branch_targets in
+        let addrs = Map.findWithDefault iic.iic_instance.program_loc Set.empty branch_targets in
+        let succ = {successor_fetch_address iic.iic_instance} in
+        succ union addrs
+    | _ ->
+        potential_next_addresses_of_instruction params state iic
+    end
 
 let enumerate_init_fetch_transitions_of_instruction params
     (i_sem:  instruction_semantics)
@@ -4044,10 +4049,12 @@ let enumerate_init_fetch_transitions_of_instruction params
     | Nothing -> true
     end) >>
 
-  (*guard (match i.micro_op_state with  (* TODO: in-order for now ... *)
+  (* init only after previous have been decoded *)
+  guard (params.thread_fetch_order = Fetch_Sequential -->
+      match i.micro_op_state with
          | MOS_fetch _ -> false
          | _ -> true
-         end) >>*)
+         end) >>
 
   let (T iits) = iic.subtree in
   let already_fetched_addrs = { i.program_loc | forall ((i,_) MEM iits) | true } in
