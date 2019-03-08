@@ -2427,6 +2427,7 @@ let pp_micro_op_state_top indent ioid m mos =
     match mos with
     | MOS_fetch is              -> "MOS_fetch"
     | MOS_plain is              -> "MOS_plain"
+    | MOS_wait_IC is            -> "MOS_wait_IC"
     | MOS_pending_mem_read ic   -> "MOS_pending_mem_read"
     | MOS_potential_mem_write c -> "MOS_pending_mem_write"
     | MOS_AMO_lock ic           -> "MOS_AMO_lock"
@@ -2438,6 +2439,7 @@ let pp_micro_op_state_top indent ioid m mos =
     match mos with
     | MOS_fetch is              -> ""
     | MOS_plain is              -> ""
+    | MOS_wait_IC is            -> ""
     | MOS_pending_mem_read ic   -> "MOS_pending_mem_read"
     | MOS_potential_mem_write c -> "MOS_pending_mem_write"
     | MOS_AMO_lock ic           -> "MOS_AMO_lock"
@@ -2488,6 +2490,7 @@ let pp_micro_op_state_body indent addr ioid subreads potential_writes m mos =
   | MOS_fetch (Some (Fetched_FDO fdo)) -> "MOS-fetch (from program) " ^ pp_fdo m fdo addr
   | MOS_fetch (Some (Fetched_Mem mrs)) -> "MOS-fetch fetched " ^ pp_mrs_uncoloured m ioid mrs
   | MOS_plain is -> pp_outcome_S indent m is
+  | MOS_wait_IC is  -> pp_outcome_S indent m is
 
   | MOS_pending_mem_read ic ->
       "\n"

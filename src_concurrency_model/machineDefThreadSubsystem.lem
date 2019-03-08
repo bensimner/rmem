@@ -2269,15 +2269,34 @@ let handle_write_memv_outcome
   in
   [T_only (make_label state iic (T_mem_potential_write potential_writes) state')]
 
-let handle_cache_maintenance
+let cache_maintenance_trans_ic
     (params: thread_params)
     (i_sem:  instruction_semantics)
     (state:  thread_state)
     (iic:    instruction_in_context)
-    (cmk:    cache_maintenance_kind)
-    (addr:   address)
-    : list (thread_trans thread_state)
-  =
+    (addr:   address) 
+    (o: outcome_S) =
+  let i = iic.iic_instance in
+  let state' =
+      fun () ->
+        let i' = <| i with micro_op_state = MOS_wait_IC o |> in
+        <| state with instruction_tree = apply_tree_context iic.context (i', iic.subtree) |>
+        $> make_thread_cont_res {} {}
+  in
+  let lbl =
+      <| cmr_cmk = CM_IC;
+         cmr_ioid = i.instance_ioid;
+         cmr_addr = addr;
+      |>
+  in
+  [T_sync (T_propagate_cache_maintenance (make_label state iic lbl state')) ()]
+
+let cache_maintenance_trans_dc
+    (params: thread_params)
+    (i_sem:  instruction_semantics)
+    (state:  thread_state)
+    (iic:    instruction_in_context)
+    (addr:   address) =
   let i = iic.iic_instance in
   let state' =
       fun () ->
@@ -2285,13 +2304,12 @@ let handle_cache_maintenance
         $> make_thread_cont_res {} {}
   in
   let lbl =
-      <| cmr_cmk = cmk;
+      <| cmr_cmk = CM_DC;
          cmr_ioid = i.instance_ioid;
          cmr_addr = addr;
       |>
   in
   [T_sync (T_propagate_cache_maintenance (make_label state iic lbl state')) ()]
-
 
 let handle_barrier_outcome
     (params: thread_params)
@@ -3761,6 +3779,34 @@ let handle_thread_start
 
     [T_thread_start (make_label state iic (addr_v, toc_v) thread_continuation)]
 
+let handle_ic_ivau
+    (params:   thread_params)
+    (i_sem:    instruction_semantics)
+    (state:    thread_state)
+    (iic:      instruction_in_context)
+    (value:    register_value)
+    (outcome:  outcome_S)
+  =
+      match address_of_register_value value with
+      | Nothing -> failwith "TODO: handle_ic_ivau fail invalid addr"
+      | Just addr ->
+            cache_maintenance_trans_ic params i_sem state iic addr outcome
+      end
+
+let handle_dc_cvau
+    (params:   thread_params)
+    (i_sem:    instruction_semantics)
+    (state:    thread_state)
+    (iic:      instruction_in_context)
+    (value:    register_value)
+    (outcome:  outcome_S)
+  =
+      match address_of_register_value value with
+      | Nothing -> failwith "TODO: handle_dc_cvau fail invalid addr"
+      | Just addr ->
+            cache_maintenance_trans_dc params i_sem state iic addr
+      end
+
 let enumerate_fetch_transitions_of_instruction params
     (i_sem:  instruction_semantics)
     (state:  thread_state)
@@ -3896,6 +3942,14 @@ let enumerate_transitions_of_instruction
     | Barrier Barrier_TM_COMMIT o ->
       handle_tmcommit_outcome params i_sem s iic o
 
+    (* IC *)
+    | Write_reg (Reg "instruction_cache_operation_IVAU" 63 64 D_decreasing, v) o ->
+      handle_ic_ivau  params i_sem s iic v o
+
+    (* DC *)
+    | Write_reg (Reg "data_cache_operation" 63 64 D_decreasing, v) o ->
+      handle_dc_cvau params i_sem s iic v o
+
     (* normal outcomes *)
     | Read_mem descr c     -> handle_read_mem_outcome     params i_sem s iic descr c
     | Write_ea descr o     -> handle_write_ea_outcome     params i_sem s iic descr o
@@ -3943,16 +3997,6 @@ let enumerate_transitions_of_instruction
 
 (* val debug_print : string -> unit *)
 (* declare ocaml target_rep function debug_print s = `Printf.eprintf` "%s%!" s *)
-
-let enumerate_test_cache_maintenance params
-    (i_sem:  instruction_semantics)
-    (state:  thread_state)
-    (iic:    instruction_in_context)
-    : list (thread_trans thread_state)
-    =
-  let i = iic.iic_instance in
-  handle_cache_maintenance params i_sem state iic CM_DC i.program_loc ++
-  handle_cache_maintenance params i_sem state iic CM_IC i.program_loc
 
 (* TODO: proper fixed-point or enumerate all addrs *)
 let potential_next_addresses_of_instruction_relaxed
@@ -4117,11 +4161,6 @@ let enumerate_transitions_of_thread params
     catch_thread_errors state.thread iic.iic_instance.instance_ioid $ fun () ->
       enumerate_init_fetch_transitions_of_instruction params i_sem state iic) ++
 
-  (* transitions for initialising the fetch of successor instructions *)
-  (un_old_instructions state >>= fun iic ->
-    catch_thread_errors state.thread iic.iic_instance.instance_ioid $ fun () ->
-      enumerate_test_cache_maintenance params i_sem state iic) ++
-
   (* failed transaction transitions *)
   enumerate_failed_transaction_transition params state
 
@@ -4151,7 +4190,18 @@ let thread_receive_transition params (state : thread_state) label =
   in
   let flat_finish_ic (cmr : cache_maintenance_request) =
     let state' = fun () ->
-      failwith "TODO: finish IC"
+        let iic =
+          ensure_just (find_ioid_instruction_in_context state cmr.cmr_ioid)
+          $ "cannot find the ioid " ^ show cmr.cmr_ioid ^ " in the instruction tree"
+        in
+        let i = iic.iic_instance in
+        match i.micro_op_state with
+        | MOS_wait_IC o ->
+            let i' = <| i with micro_op_state = MOS_plain o |> in
+            <| state with instruction_tree = apply_tree_context iic.context (i', iic.subtree) |>
+            $> make_thread_cont_res {} {}
+        | _ -> failwith "flat finish IC:  wasn't MOS_wait_IC"
+        end
     in
     Just <| tc_tid = state.thread; tc_ioid = cmr.cmr_ioid; tc_cont = state' |>
   in
