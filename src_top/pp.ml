@@ -1467,8 +1467,14 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
       ("propagate write to memory", Some info)
 
   | SS_Promising_stop_promising -> ("stop promising", None)
-  | SS_Flat_icache_update (_, _, _) ->
-        ("icache update", None)
+  | SS_Flat_icache_update (tid, addr, mrs) ->
+      let ioid = (0, 0) in
+      let info =
+          let addr_info = pp_address m (Some ioid) addr in
+          sprintf "%s %s"
+            addr_info
+            (pp_mrs_uncoloured m ioid mrs) in
+      ("icache update", Some info)
 
 
 let pp_cmr cmr m =
@@ -1517,9 +1523,9 @@ let pp_ss_sync_label ?(graph=false) m t =
           (colour_memory_action m (pp_mrs_uncoloured m read_request.r_ioid source))
       in
       ("memory read request response from storage-memory", Some info)
-  | SS_Flat_thread_ic (cmr, tid) -> 
+  | SS_Flat_thread_ic (cmr, tid) ->
       let info =
-          sprintf "%s from Thread %d" 
+          sprintf "%s to Thread %d"
             (pp_cmr cmr m)
             tid
       in
@@ -2145,22 +2151,23 @@ let flat_pp_ui_storage_subsystem_state m model ss =
     pp_changed3_list m pp_write_uncoloured ss.ui_flat_ss_fetch_buf in
 
   let pp_icache (tid, ic) =
-    let pp_pair (addr, mrs) =
+    let pp_pair (addr, c3mrs) =
       String.concat ""
         [(pp_address m None addr);
          pp_mapsto m;
-         (pp_mrs_uncoloured m (0,0) mrs);
+         (colour_changed3_f m (fun m -> pp_mrs_uncoloured m (0,0)) c3mrs);
         ] in
     sprintf "Thread %d: [%s]"
       tid
-      (pp_list m pp_pair (Pmap.bindings_list ic.ic_memory)) in
+      (pp_list m pp_pair (Pmap.bindings_list ic.ui_ic_memory)) in
   let icaches =
     sprintf "[%s]"
       (pp_list m pp_icache (Pmap.bindings_list ss.ui_flat_ss_icaches)) in
+  let pp_tid m = sprintf "%d" in
   let pp_ic_write (addr, (cmr, tids)) =
-      sprintf "(%s): %d"
+      sprintf "(%s): %s"
         (pp_address m None addr)
-        (List.length tids) in
+        (pp_changed3_list m pp_tid tids) in
   let ic_writes =
     sprintf "[%s]"
       (pp_list m pp_ic_write (Pmap.bindings_list ss.ui_flat_ss_ic_writes)) in

@@ -2053,15 +2053,20 @@ type nop_ui_storage_subsystem_state 'ts 'ss =
      ui_nop_ss_transitions_propagate_everything:   list (ui_trans 'ts 'ss);
   |>
 
+type ui_icache =
+  <| ui_ic_memory: map address (changed3 memory_read_source);
+     ui_ic_tid: thread_id;
+  |>
+
 type flat_ui_storage_subsystem_state 'ts 'ss =
   <|  (* storage state *)
       ui_flat_ss_memory_writes : list (changed3 (write * slices));
       (* storage transitions: none *)
       ui_flat_ss_old_writes : list (changed3 write);
       (* set of addresses to be IC'd *)
-      ui_flat_ss_ic_writes : map address (cache_maintenance_request * (list thread_id));
+      ui_flat_ss_ic_writes : map address (cache_maintenance_request * (list (changed3 thread_id)));
       (* the set of instruction caches *)
-      ui_flat_ss_icaches : map thread_id icache;  (* TODO: define ui_icache with diff *)
+      ui_flat_ss_icaches : map thread_id ui_icache;  (* TODO: define ui_icache with diff *)
       (* the global buffer of writes that can be fetched from *)
       ui_flat_ss_fetch_buf : list (changed3 write);
   |>
