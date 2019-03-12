@@ -178,6 +178,18 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (_, SS_Flat_icache_update (_, _, _)) -> -1
   in
 
+  let cmkCompare cmk1 cmk2 =
+      (match (cmk1, cmk2) with
+       | (CM_DC, CM_DC) -> 0
+       | (CM_IC, CM_DC) -> -1
+       | (CM_DC, CM_IC) -> 1
+       | (CM_IC, CM_IC) -> 0) in
+
+  let cmrCompare cmr1 cmr2 = 
+      cmps [ (fun () -> Sail_impl_base.addressCompare cmr1.cmr_addr cmr2.cmr_addr);
+             (fun () -> Pervasives.compare cmr1.cmr_ioid cmr2.cmr_ioid);
+             (fun () -> cmkCompare cmr1.cmr_cmk cmr2.cmr_cmk) ] in
+
   let cmp_ss_sync_trans l1 l2 =
     match (l1, l2) with
     | (SS_PLDI11_acknowledge_sync_barrier barrier1,
@@ -218,6 +230,18 @@ let fuzzy_compare_transitions trans1 trans2 =
     | (SS_Flowing_mem_read_response (read1, _),
        SS_Flowing_mem_read_response (read2, _))
         -> read_requestCompare read1 read2
+    | (SS_Flat_thread_ic (cmr1, tid1),
+       SS_Flat_thread_ic (cmr2, tid2))
+        -> cmps [ (fun () -> Pervasives.compare tid1 tid2);
+                  (fun () -> cmrCompare cmr1 cmr2) ]
+    | (SS_Flat_thread_ic _, _) -> 1
+    | (_, SS_Flat_thread_ic _) -> -1
+
+    | (SS_Flat_ic_finish cmr1,
+       SS_Flat_ic_finish cmr2)
+        -> cmrCompare cmr1 cmr2
+    | (SS_Flat_ic_finish _, _) -> 1
+    | (_, SS_Flat_ic_finish _) -> -1
     (* unused case (last):
     | (SS_Flowing_mem_read_response _, _) -> 1
     | (_, SS_Flowing_mem_read_response _) -> -1
