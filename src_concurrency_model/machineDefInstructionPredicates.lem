@@ -27,6 +27,8 @@ open import MachineDefFragments
      import MachineDefEvents
 open import MachineDefDebug
 
+import ArmV8_embed_types
+
 (** read_kind *******************************************************)
 
 let is_AArch64_read_weak_acquire (r: read_kind) : bool =
@@ -1210,26 +1212,14 @@ let is_AArch64_dc_wait_barrier (instruction: instruction_instance) : bool =
   end
 
 let is_AArch64_ic_instr (instruction: instruction_instance) : bool =
-  match instruction.micro_op_state with
-  | MOS_plain is ->
-    match fst is with
-    (* IC *)
-    | Write_reg (Reg "instruction_cache_operation_IVAU" 63 64 D_decreasing, v) o ->
-      true
-    | _ -> false
-    end
+  match instruction.instruction with
+  | AArch64_instr (ArmV8_embed_types.InstructionCache _) -> true
   | _ -> false
   end
 
 let is_AArch64_dc_instr (instruction: instruction_instance) : bool =
-  match instruction.micro_op_state with
-  | MOS_plain is ->
-    match fst is with
-    (* DC *)
-    | Write_reg (Reg "data_cache_operation_CVAU" 63 64 D_decreasing, v) o ->
-      true
-    | _ -> false
-    end
+  match instruction.instruction with
+  | AArch64_instr (ArmV8_embed_types.DataCache _) -> true
   | _ -> false
   end
 
