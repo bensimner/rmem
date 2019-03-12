@@ -1098,6 +1098,141 @@ let is_AArch64_ld_barrier (instruction: instruction_instance) : bool =
   | IK_cache_op _  -> false
   end
 
+let is_AArch64_isb_barrier (instruction: instruction_instance) : bool =
+  match instruction.instruction_kind with
+  | IK_barrier Barrier_DSB_LD      -> false
+  | IK_barrier Barrier_DMB_LD      -> false
+
+  | IK_barrier Barrier_DSB         -> false
+  | IK_barrier Barrier_DSB_ST      -> false
+  | IK_barrier Barrier_DMB         -> false
+  | IK_barrier Barrier_DMB_ST      -> false
+  | IK_barrier Barrier_Sync        -> false
+  | IK_barrier Barrier_LwSync      -> false
+  | IK_barrier Barrier_Eieio       -> false
+  | IK_barrier Barrier_Isync       -> false
+  | IK_barrier Barrier_ISB         -> true
+  | IK_barrier Barrier_RISCV_i     -> false
+  | IK_barrier Barrier_MIPS_SYNC   -> false
+  | IK_barrier Barrier_TM_COMMIT   -> fail
+  | IK_barrier Barrier_RISCV_rw_rw -> false
+  | IK_barrier Barrier_RISCV_r_rw  -> false
+  | IK_barrier Barrier_RISCV_w_rw  -> false
+  | IK_barrier Barrier_RISCV_rw_r  -> false
+  | IK_barrier Barrier_RISCV_r_r   -> false
+  | IK_barrier Barrier_RISCV_w_r   -> false
+  | IK_barrier Barrier_RISCV_rw_w  -> false
+  | IK_barrier Barrier_RISCV_r_w   -> false
+  | IK_barrier Barrier_RISCV_w_w   -> false
+  | IK_barrier Barrier_RISCV_tso   -> false
+  | IK_barrier Barrier_x86_MFENCE  -> false
+
+  | IK_mem_write _ -> false
+  | IK_mem_read _  -> false
+  | IK_mem_rmw _   -> false
+  | IK_branch      -> false
+  | IK_trans _     -> false
+  | IK_simple      -> false
+  end
+
+let is_AArch64_ic_wait_barrier (instruction: instruction_instance) : bool =
+  match instruction.instruction_kind with
+  | IK_barrier Barrier_DSB_LD      -> false
+  | IK_barrier Barrier_DMB_LD      -> false
+
+  | IK_barrier Barrier_DSB         -> true
+  | IK_barrier Barrier_DSB_ST      -> false
+  | IK_barrier Barrier_DMB         -> false
+  | IK_barrier Barrier_DMB_ST      -> false
+  | IK_barrier Barrier_Sync        -> false
+  | IK_barrier Barrier_LwSync      -> false
+  | IK_barrier Barrier_Eieio       -> false
+  | IK_barrier Barrier_Isync       -> false
+  | IK_barrier Barrier_ISB         -> false
+  | IK_barrier Barrier_RISCV_i     -> false
+  | IK_barrier Barrier_MIPS_SYNC   -> false
+  | IK_barrier Barrier_TM_COMMIT   -> fail
+  | IK_barrier Barrier_RISCV_rw_rw -> false
+  | IK_barrier Barrier_RISCV_r_rw  -> false
+  | IK_barrier Barrier_RISCV_w_rw  -> false
+  | IK_barrier Barrier_RISCV_rw_r  -> false
+  | IK_barrier Barrier_RISCV_r_r   -> false
+  | IK_barrier Barrier_RISCV_w_r   -> false
+  | IK_barrier Barrier_RISCV_rw_w  -> false
+  | IK_barrier Barrier_RISCV_r_w   -> false
+  | IK_barrier Barrier_RISCV_w_w   -> false
+  | IK_barrier Barrier_RISCV_tso   -> false
+  | IK_barrier Barrier_x86_MFENCE  -> false
+
+  | IK_mem_write _ -> false
+  | IK_mem_read _  -> false
+  | IK_mem_rmw _   -> false
+  | IK_branch      -> false
+  | IK_trans _     -> false
+  | IK_simple      -> false
+  end
+
+let is_AArch64_dc_wait_barrier (instruction: instruction_instance) : bool =
+  match instruction.instruction_kind with
+  | IK_barrier Barrier_DSB_LD      -> false
+  | IK_barrier Barrier_DMB_LD      -> false
+
+  | IK_barrier Barrier_DSB         -> true
+  | IK_barrier Barrier_DSB_ST      -> false
+  | IK_barrier Barrier_DMB         -> true
+  | IK_barrier Barrier_DMB_ST      -> false
+  | IK_barrier Barrier_Sync        -> false
+  | IK_barrier Barrier_LwSync      -> false
+  | IK_barrier Barrier_Eieio       -> false
+  | IK_barrier Barrier_Isync       -> false
+  | IK_barrier Barrier_ISB         -> false
+  | IK_barrier Barrier_RISCV_i     -> false
+  | IK_barrier Barrier_MIPS_SYNC   -> false
+  | IK_barrier Barrier_TM_COMMIT   -> fail
+  | IK_barrier Barrier_RISCV_rw_rw -> false
+  | IK_barrier Barrier_RISCV_r_rw  -> false
+  | IK_barrier Barrier_RISCV_w_rw  -> false
+  | IK_barrier Barrier_RISCV_rw_r  -> false
+  | IK_barrier Barrier_RISCV_r_r   -> false
+  | IK_barrier Barrier_RISCV_w_r   -> false
+  | IK_barrier Barrier_RISCV_rw_w  -> false
+  | IK_barrier Barrier_RISCV_r_w   -> false
+  | IK_barrier Barrier_RISCV_w_w   -> false
+  | IK_barrier Barrier_RISCV_tso   -> false
+  | IK_barrier Barrier_x86_MFENCE  -> false
+
+  | IK_mem_write _ -> false
+  | IK_mem_read _  -> false
+  | IK_mem_rmw _   -> false
+  | IK_branch      -> false
+  | IK_trans _     -> false
+  | IK_simple      -> false
+  end
+
+let is_AArch64_ic_instr (instruction: instruction_instance) : bool =
+  match instruction.micro_op_state with
+  | MOS_plain is ->
+    match fst is with
+    (* IC *)
+    | Write_reg (Reg "instruction_cache_operation_IVAU" 63 64 D_decreasing, v) o ->
+      true
+    | _ -> false
+    end
+  | _ -> false
+  end
+
+let is_AArch64_dc_instr (instruction: instruction_instance) : bool =
+  match instruction.micro_op_state with
+  | MOS_plain is ->
+    match fst is with
+    (* DC *)
+    | Write_reg (Reg "data_cache_operation_CVAU" 63 64 D_decreasing, v) o ->
+      true
+    | _ -> false
+    end
+  | _ -> false
+  end
+
 let is_AArch64_st_barrier (instruction: instruction_instance) : bool =
   match instruction.instruction_kind with
   | IK_barrier Barrier_DSB_ST     -> true

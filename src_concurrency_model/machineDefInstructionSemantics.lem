@@ -421,8 +421,9 @@ let initialise_shallow_embedding_semantics endianness ism =
     | MIPS_instr instr ->     (Mips_embed.execute instr,Nothing)
     | RISCV_instr instr ->    (ignore_outcome (sail2_prompt_to_outcome (Riscv.execute instr)),Nothing)
     | X86_instr instr ->      (X86_embed.execute instr,Nothing)
-    | Fetch_error         -> failwith "initial_outcome_s_of_instruction Fetch_error"
-    | Unfetched         -> failwith "initial_outcome_s_of_instruction Unfetched"
+    | Fetch_error -> failwith "initial_outcome_s_of_instruction Fetch_error"
+    | Unfetched -> failwith "initial_outcome_s_of_instruction Unfetched"
+    | Fetched _ -> failwith "initial_outcome_s_of_instruction Fetched _"
     end in
 
   let shallow_embedding__instruction_analysis _ instr analysis_function reginfo _ environment =
@@ -457,6 +458,8 @@ let initialise_shallow_embedding_semantics endianness ism =
            failwith "instruction_analysis: Fetch_error"
         | (Unfetched,_) ->
            failwith "instruction_analysis: Unfetched"
+        | (Fetched _,_) ->
+           failwith "instruction_analysis: Fetched (but not decoded)"
         end in
     let (input_regs,output_regs,address_feeding_address_regs,nias,dia,instruction_kind) =
       (List.map (regfp_to_reg reginfo) input_regs,

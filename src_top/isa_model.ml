@@ -226,6 +226,7 @@ module Make (ISADefs: ISADefs) (TransSail: TransSail) : S = struct
       | X86_instr instr -> X86_toFromInterp.astToInterpValue3 instr
       | Fetch_error -> failwith "fetch error"
       | Unfetched -> failwith "unfetched"
+      | Fetched _ -> failwith "fetched (undecoded)"
     in
 
     let interp_instruction_to_instruction instr = match ism with

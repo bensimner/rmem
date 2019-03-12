@@ -1266,7 +1266,16 @@ let pop_commit_barrier_cand
   po-later loads can be satisfied only after all loads preceding the fence.tso are satisfied *)
   (is_RISCV_fence_tso inst -->
     forall (iprev MEM iic.active_prefix).
-        is_viable_memory_access iprev --> iprev.finished)
+        is_viable_memory_access iprev --> iprev.finished) &&
+
+  (* for IC/DC *)
+  (is_AArch64_dc_wait_barrier inst -->
+    forall (iprev MEM iic.active_prefix).
+        is_AArch64_dc_instr iprev --> iprev.finished) &&
+
+  (is_AArch64_ic_wait_barrier inst -->
+    forall (iprev MEM iic.active_prefix).
+        is_AArch64_ic_instr iprev --> iprev.finished)
 
 let pop_commit_store_cand
     (params: thread_params)
@@ -2287,6 +2296,11 @@ let cache_maintenance_trans_ic
     (iic:    instruction_in_context)
     (addr:   address) 
     (o: outcome_S) =
+  guard (
+        forall (iprev MEM iic.active_prefix).
+          (is_AArch64_ic_wait_barrier iprev --> iprev.finished)
+  ) >>
+
   let i = iic.iic_instance in
   let state' =
       fun () ->
@@ -2309,6 +2323,10 @@ let cache_maintenance_trans_dc
     (iic:    instruction_in_context)
     (addr:   address)
     (o:      outcome_S) =
+  guard (
+        forall (iprev MEM iic.active_prefix).
+          (is_AArch64_dc_wait_barrier iprev --> iprev.finished)
+  ) >>
   let i = iic.iic_instance in
   let state' =
       fun () ->
@@ -2356,7 +2374,21 @@ let handle_barrier_outcome
         committed_barriers = b :: i.committed_barriers;
       |>
     in
-    let s' = <| state with instruction_tree = apply_tree_context iic.context (i', iic.subtree) |> in
+    let sub' = 
+        if is_AArch64_isb_barrier i then
+            instruction_tree_map
+              (fun _ i _ ->
+                match i.micro_op_state with
+                | MOS_fetch _ ->
+                    starting_fetch_inst params i.instance_ioid i.program_loc
+                | s -> i
+                end)
+            []
+            iic.subtree
+        else
+            iic.subtree
+    in
+    let s' = <| state with instruction_tree = apply_tree_context iic.context (i', sub') |> in
 
     match params.thread_model with
     | PLDI11_thread_model    -> pldi11_commit_barrier_action s' b
@@ -3849,10 +3881,7 @@ let enumerate_fetch_transitions_of_instruction params
     : list (thread_trans thread_state)
     =
   let i = iic.iic_instance in
-  guard (match i.micro_op_state with
-         | MOS_fetch Nothing -> true
-         | _ -> false
-         end) >>
+  guard (i.micro_op_state = MOS_fetch Nothing) >>
 
   (* let fetch_kind =
     if not prev_i.finished
@@ -3886,6 +3915,12 @@ let enumerate_decode_transitions_of_instruction params
          | _ -> false
          end) >>
 
+  (* only decode if program-order previous decoded ISBs are finished *)
+  guard (
+        forall (iprev MEM iic.active_prefix).
+          (is_AArch64_isb_barrier iprev --> iprev.finished)
+  ) >>
+
   (* Can only decode after parent has decoded or initial fetch *)
   let prefix = iic.active_prefix ++ iic.old_prefix in
   guard (match prefix with
@@ -3918,6 +3953,7 @@ let enumerate_decode_transitions_of_instruction params
         | FDO_address_not_concrete -> FDE_non_concrete_fetch_address_error
         | FDO_illegal_fetch_address -> FDE_illegal_fetch_address_error i.program_loc
         | FDO_decode_error de -> FDE_decode_error de i.program_loc
+        | _ -> failwith "impossible"
         end
       in
         let i' = <| i with micro_op_state = MOS_pending_exception (ET_fetch_and_decode fde) |> in
@@ -4233,7 +4269,8 @@ let thread_receive_transition params (state : thread_state) label =
           (fun _ i _ ->
             if i.program_loc = cmr.cmr_addr then
                 match i.micro_op_state with
-                | MOS_fetch _ -> <| i with micro_op_state=MOS_fetch Nothing |>
+                | MOS_fetch _ ->
+                    starting_fetch_inst params i.instance_ioid i.program_loc
                 | s -> i
                 end
             else
