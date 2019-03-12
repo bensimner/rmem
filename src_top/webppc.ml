@@ -143,6 +143,8 @@ let model_to_html : unit -> unit = fun () ->
   check_radio "force_sc_false"
               (not ((!Globals.model_params).t.thread_restriction = RestrictionSC && (!Globals.model_params).ss.ss_sc));
 
+  check_checkbox "relaxed_fetch" (!Globals.model_params.ss.model_fetch_type <> Fetch_Atomic);
+
   Js.Unsafe.fun_call (Js.Unsafe.js_expr "set_model") [|Js.Unsafe.inject (Js.string (List.assoc (Model_aux.model_value !Globals.model_params) Model_aux.model_assoc))|] |> ignore
 
 let options_to_html run_options : unit =
@@ -181,6 +183,11 @@ let options_of_html : unit -> RunOptions.t = fun () ->
     Globals.model_params := Model_aux.parse_and_update_model "sc" !Globals.model_params
   else (*if is_checked_radio "force_sc_false" then*)
     Globals.model_params := Model_aux.parse_and_update_model "not-restricted" !Globals.model_params;
+
+  if is_checked_checkbox "relaxed_fetch" then
+    Globals.model_params := Model_aux.parse_and_update_model "fetch-relaxed" !Globals.model_params
+  else
+    Globals.model_params := Model_aux.parse_and_update_model "fetch-atomic" !Globals.model_params;
 
   Globals.elf_threads := read_number "elf_threads";
 

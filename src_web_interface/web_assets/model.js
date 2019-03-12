@@ -37,6 +37,7 @@ function StateModel () {
     this.tree_speculation = ko.observable("allow");
     this.embedding = ko.observable("interpreter");
     this.force_sc = ko.observable("force_sc_false");
+    this.relaxed_fetch = ko.observable(false);
 }
 
 var STATE = new StateModel;

@@ -125,6 +125,7 @@ $(document).ready(function () {
                     model: $("input[type='radio'][name='model']:checked").val(),
                     embedding: $("input[type='radio'][name='semantics']:checked").val(),
                     force_sc: $("input[type='radio'][name='force_sc']:checked").val(),
+                    relaxed_fetch: $("#relaxed_fetch:checked").val(),
                     tree_speculation: $("input[type='radio'][name='tree_speculation']:checked").val(),
                     flowing_topology_2: $("input[type='radio'][name='topology_2']:checked").val(),
                     flowing_topology_3: $("input[type='radio'][name='topology_3']:checked").val(),
