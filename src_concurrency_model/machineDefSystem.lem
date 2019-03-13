@@ -58,6 +58,7 @@ let default_model_params =
         flowing_topology = FTopo_leaf 0;
         promise_first = false;
         model_fetch_type = Fetch_Atomic;
+        ss_icache_type = Icache_Many;
     |>
   in
 

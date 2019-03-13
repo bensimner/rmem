@@ -270,7 +270,7 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
           | SS_TSO_propagate_write_to_memory _ -> false
           | SS_Promising_stop_promising -> false
           (*** Flat ifetch transitions ***)
-          | SS_Flat_icache_update -> false
+          | SS_Flat_icache_update -> (is_flat_model params.t && is_relaxed_icaches params.ss)
           end
 
       | SS_sync ss_sync_trans _ _ ->

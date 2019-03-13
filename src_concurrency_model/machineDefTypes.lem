@@ -1345,12 +1345,17 @@ type fetch_type =  (* Enable/Disable fetching for self-modifying examples *)
   | Fetch_Atomic  (* TODO: better name *)
   | Fetch_Relaxed
 
+type icache_type =
+  | Icache_Flat  (* a single write per address per icache *)
+  | Icache_Many  (* many writes per address per icache *)
+
 type ss_params =
   <| ss_model: storage_model;
      ss_sc   : bool; (* behave like SC *)
      pw      : propagate_write_params;
      new_coh : new_coherence_params;
      model_fetch_type: fetch_type;
+     ss_icache_type: icache_type;
 
      (* parameters for Flowing *)
      flowing_topology : flowing_topology;
@@ -1358,6 +1363,10 @@ type ss_params =
      promise_first: bool;
   |>
 
+let is_relaxed_icaches params = match params.ss_icache_type with
+  | Icache_Many -> true
+  | Icache_Flat -> false
+  end
 
 type thread_flowing_same_address_params =
   | Flowing_same_address_strict
