@@ -266,7 +266,7 @@ let icache_update_addr (icache) (addr : address) (mrs : memory_read_source) stat
     fun () ->
         let icache' =
             <| icache with
-                ic_memory = Map.insert addr mrs (icache.ic_memory);
+                ic_memory = Map.insert addr [mrs] icache.ic_memory;
             |>
         in
         <| state with
@@ -285,7 +285,7 @@ let rec flat_try_fetch_relaxed params state tl =
           let f mrs = flat_try_fetch_relaxed params (state' mrs) tl in
           List.concat (List.map f mrss)
           (* failwith "flat_try_fetch_relaxed nothing in icache" *)
-      | Just mrs ->
+      | Just [mrs] ->
           let fdo = tl.tl_label.fr_decode addr mrs in
           [(T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs fdo) |>), Just (fun() -> state))]
       end
@@ -423,51 +423,55 @@ let enumerate_transitions_ss params state =
     enumerate_icache_updates params state ++
     enumerate_ic_transitions params state
 
-let ui_map_diffBy (df : 'v -> 'v -> changed3 'v) (m1 : map 'k 'v) (m2 : map 'k 'v) =
-    let ks = Map.domain m2 in
+let ui_map_diff3' (m1 : map 'k 'v) (m2 : map 'k 'v) =
+    let f = function
+      | C3_gone (x, y) -> (x, C3_gone y)
+      | C3_new (x, y) -> (x, C3_new y)
+      | C3_unchanged (x, y) -> (x, C3_unchanged y)
+    end in
+    Map.fromList (List.map f (ui_map_diff3 m1 m2))
+
+let ui_mapPair (pf : 'v -> 'v -> 'v2) (m1 : map 'k 'v) (m2 : map 'k 'v) =
+    let ks = Map.domain m1 in
     let f k =
         match (Map.lookup k m1, Map.lookup k m2) with
-        | (Nothing, Just x) -> (k, C3_new x)
-        | (Just x, Just y)  -> (k, df x y)
-        | _ -> failwith "unreachable"
-        end
-    in Map.fromList (List.map f (Set_extra.toList ks))
+        | (Just x, Just y) -> (k, pf x y)
+        | _ -> failwith "ui_mapPair had different domains"
+        end in
+    Map.fromList (List.map f (Set_extra.toList ks))
 
-let ui_map_diff (f : 'v -> 'v2) (df : 'v -> 'v -> 'v2) (m1 : map 'k 'v) (m2 : map 'k 'v) =
-    let ks = Map.domain m2 in
+let ui_map' (gf : 'v -> 'v2) (nf : 'v -> 'v2) (df : 'v -> 'v -> list 'v2) (m1 : map 'k 'v) (m2 : map 'k 'v) =
+    let ks = Map.domain m1 in
     let f k =
         match (Map.lookup k m1, Map.lookup k m2) with
-        | (Nothing, Just x) -> (k, f x)
-        | (Just x, Just y)  -> (k, df x y)
-        | _ -> failwith "ui_map_diff unreachable"
-        end
-    in Map.fromList (List.map f (Set_extra.toList ks))
-
-let ui_mrs_diff (mrs1 : memory_read_source) (mrs2 : memory_read_source) =
-    if  mrs1.mrs_footprint <> mrs2.mrs_footprint  ||
-        mrs1.mrs_value <> mrs2.mrs_value ||
-        mrs1.mrs_writes_read_from <> mrs2.mrs_writes_read_from then
-        C3_gone mrs2
-    else
-        C3_unchanged mrs2
+        | (Just x, Just y) ->  List.map (fun v -> (k, v)) (df x y)
+        | (Nothing, Just y) -> [(k, nf y)]
+        | (Just x, Nothing) -> [(k, gf x)]
+        | _ -> failwith "ui_mapPair had different domains"
+        end in
+    Map.fromList (List.concat (List.map f (Set_extra.toList ks)))
 
 let flat_make_ui_icache_diff (ic: icache) (ic': icache) : ui_icache =
-    <| ui_ic_memory = ui_map_diffBy ui_mrs_diff (ic.ic_memory) (ic'.ic_memory);
+    let gf a = List.map C3_gone a in
+    let nf a = List.map C3_new a in
+    let df a b = [ui_list_diff3 a b] in
+    <| ui_ic_memory = ui_map' gf nf df (ic.ic_memory) (ic'.ic_memory);
        ui_ic_tid = ic'.ic_tid;
     |>
 
 let flat_make_ui_icache_unchanged (ic : icache) : ui_icache =
-    <| ui_ic_memory = Map.map unchanged3 ic.ic_memory;
+    <| ui_ic_memory = Map.map unchanged3_list ic.ic_memory;
        ui_ic_tid = ic.ic_tid;
     |>
 
 let flat_ui_ic_writes_diff icw icw' =
-    let tids = Map.domain icw union Map.domain icw' in
-    let df (cmr, xs) (cmr', xs') =
-        (cmr, ui_list_diff3 xs xs') in
-    let f (cmr, xs) =
-        (cmr, List.map C3_new xs) in
-    ui_map_diff f df icw icw'
+    let df (cmr, a) (_, b) =
+        [(cmr, ui_list_diff3 a b)] in
+    let nf (cmr, a) =
+        (cmr, List.map C3_new a) in
+    let gf (cmr, a) =
+        (cmr, List.map C3_gone a) in
+    ui_map' gf nf df icw icw'
 
 let flat_ui_ic_writes_unchanged icw =
     let f (cmr, xs) =
@@ -500,10 +504,10 @@ let flat_make_ui_storage_subsystem_state
           | Nothing ->
              unchanged3_list ss'.flat_ss_old_writes
           end;
-        ui_flat_ss_icaches = 
+        ui_flat_ss_icaches =
           match ss with
-          | Just ss -> 
-              ui_map_diff flat_make_ui_icache_unchanged flat_make_ui_icache_diff ss.flat_ss_icaches ss'.flat_ss_icaches
+          | Just ss ->
+              ui_mapPair flat_make_ui_icache_diff ss.flat_ss_icaches ss'.flat_ss_icaches
           | Nothing ->
               Map.map flat_make_ui_icache_unchanged ss'.flat_ss_icaches
           end;

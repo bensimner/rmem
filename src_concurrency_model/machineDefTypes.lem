@@ -620,7 +620,7 @@ type flowing_storage_subsystem_state =
 
 (******************** Flat Storage Subsystem ********************)
 type icache =
-  <| ic_memory: map address memory_read_source;
+  <| ic_memory: map address (list memory_read_source);
      ic_tid: thread_id;
   |>
 
@@ -2054,7 +2054,7 @@ type nop_ui_storage_subsystem_state 'ts 'ss =
   |>
 
 type ui_icache =
-  <| ui_ic_memory: map address (changed3 memory_read_source);
+  <| ui_ic_memory: map address (list (changed3 memory_read_source));
      ui_ic_tid: thread_id;
   |>
 
@@ -2066,7 +2066,7 @@ type flat_ui_storage_subsystem_state 'ts 'ss =
       (* set of addresses to be IC'd *)
       ui_flat_ss_ic_writes : map address (cache_maintenance_request * (list (changed3 thread_id)));
       (* the set of instruction caches *)
-      ui_flat_ss_icaches : map thread_id ui_icache;  (* TODO: define ui_icache with diff *)
+      ui_flat_ss_icaches : map thread_id ui_icache;
       (* the global buffer of writes that can be fetched from *)
       ui_flat_ss_fetch_buf : list (changed3 write);
   |>

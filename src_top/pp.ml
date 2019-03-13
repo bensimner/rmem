@@ -2151,11 +2151,11 @@ let flat_pp_ui_storage_subsystem_state m model ss =
     pp_changed3_list m pp_write_uncoloured ss.ui_flat_ss_fetch_buf in
 
   let pp_icache (tid, ic) =
-    let pp_pair (addr, c3mrs) =
+    let pp_pair (addr, mrss) =
       String.concat ""
         [(pp_address m None addr);
          pp_mapsto m;
-         (colour_changed3_f m (fun m -> pp_mrs_uncoloured m (0,0)) c3mrs);
+         (pp_list m (colour_changed3_f m (fun m -> pp_mrs_uncoloured m (0,0))) mrss);
         ] in
     sprintf "Thread %d: [%s]"
       tid
