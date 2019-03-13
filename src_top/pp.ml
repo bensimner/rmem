@@ -748,7 +748,7 @@ let pp_reg m r =
   Printing_functions.reg_name_to_string r
 
 let pp_instruction m
-      (symbol_table: ((Sail_impl_base.address * MachineDefTypes.size) * string) list)
+      (symbol_table: (footprint * string) list)
       (inst: MachineDefTypes.instruction_ast)
       (program_loc: Sail_impl_base.address) =
   begin match inst with
