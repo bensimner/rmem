@@ -1135,6 +1135,7 @@ let is_AArch64_isb_barrier (instruction: instruction_instance) : bool =
   | IK_branch      -> false
   | IK_trans _     -> false
   | IK_simple      -> false
+  | IK_cache_op _  -> false
   end
 
 let is_AArch64_ic_wait_barrier (instruction: instruction_instance) : bool =
@@ -1172,6 +1173,7 @@ let is_AArch64_ic_wait_barrier (instruction: instruction_instance) : bool =
   | IK_branch      -> false
   | IK_trans _     -> false
   | IK_simple      -> false
+  | IK_cache_op _  -> false
   end
 
 let is_AArch64_dc_wait_barrier (instruction: instruction_instance) : bool =
@@ -1209,17 +1211,18 @@ let is_AArch64_dc_wait_barrier (instruction: instruction_instance) : bool =
   | IK_branch      -> false
   | IK_trans _     -> false
   | IK_simple      -> false
+  | IK_cache_op _  -> false
   end
 
 let is_AArch64_ic_instr (instruction: instruction_instance) : bool =
-  match instruction.instruction with
-  | AArch64_instr (ArmV8_embed_types.InstructionCache _) -> true
+  match instruction.instruction_kind with
+  | IK_cache_op Cache_op_I_IVAU  -> true
   | _ -> false
   end
 
 let is_AArch64_dc_instr (instruction: instruction_instance) : bool =
-  match instruction.instruction with
-  | AArch64_instr (ArmV8_embed_types.DataCache _) -> true
+  match instruction.instruction_kind with
+  | IK_cache_op Cache_op_D_CVAU  -> true
   | _ -> false
   end
 
