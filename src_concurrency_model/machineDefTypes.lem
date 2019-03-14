@@ -1499,6 +1499,11 @@ type thread_params =
      promising_partial_order : bool;
   |>
 
+let is_fetch_sequential params = match params.thread_fetch_order with
+  | Fetch_Sequential -> true
+  | _ -> false
+  end
+
 let is_pop_model params = match params.thread_model with
   | POP_thread_model _ -> true
   | _ -> false

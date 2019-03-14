@@ -40,8 +40,6 @@ let read_footprint_of_trans (transition: trans 'ts 'ss) : maybe footprint =
   | Sys_trans _ _ -> Nothing
   | T_trans (T_only tl) ->
       match tl.tl_label with
-      | T_init_fetch _           -> Nothing
-      | T_decode _ _             -> Nothing
       | T_internal_outcome      -> Nothing
       | T_pending_memory_read_request -> Nothing
       | T_pseudoreg_read _ _    -> Nothing
@@ -320,7 +318,7 @@ let is_memory_auxiliary_steps_transition params : (trans 'ts 'ss -> bool) = func
 
           (* ? *)
           | T_init_fetch _          -> false
-          | T_decode _ _            -> false
+          | T_decode _ _            -> (is_flat_model params.t && is_fetch_sequential params.t)
           end
       | T_sync tsl _ ->
           match tsl with
