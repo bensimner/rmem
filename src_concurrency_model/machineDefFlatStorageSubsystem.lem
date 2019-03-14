@@ -241,11 +241,16 @@ let flat_try_fetch_atomic _params state tl =
 let mrs_from_write (addr : footprint) (w : write) : maybe memory_read_source =
     mrs_from_writes addr [write_with_complete_slice w]
 
+let write_is_to_addr addr w =
+    match mrs_from_write addr w with
+    | Nothing -> false
+    | Just _  -> true
+    end
+
 let flat_fetch_from_relaxed _params state addr =
   let fp = (addr, 4) in  (* TODO: maybe not fixed 4-byte instruction size *)
   let writes = state.flat_ss_fetch_buf in
   let flat_mem = state.flat_ss_memory_writes in
-  let accept_writes = List.filter (write_is_to_addr addr) writes in
   let mrss = List.catMaybes (List.map (mrs_from_write fp) writes) in
   (* head of buffer is always in memory *)
   let mrss =
@@ -310,7 +315,7 @@ let flat_try_fetch params state tl =
 
 let flat_flow_writes _params state addr =
     let fetch_buf = state.flat_ss_fetch_buf in
-    List.filter (fun w -> not (write_is_to_addr addr w)) fetch_buf
+    List.filter (fun w -> not (write_is_to_addr (addr, 4) w)) fetch_buf
 
 let flat_clear_icache addr ic =
     <| ic with ic_memory = Map.delete addr ic.ic_memory |>
