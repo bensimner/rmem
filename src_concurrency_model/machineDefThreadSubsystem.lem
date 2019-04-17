@@ -2089,7 +2089,7 @@ let init_fetch_instruction params
     (i_sem:           instruction_semantics)
     (state:           thread_state)
     (complete_prefix: list instruction_instance)
-    : address -> MachineDefFreshIds.id_state thread_id * list instruction_instance
+    : address -> FreshIds.id_state thread_id * list instruction_instance
   = fun addr ->
       let () = ensure
           (params.thread_fail_on_loop -->
@@ -2114,7 +2114,7 @@ let init_fetch_instruction params
           else
             (id_state', [i'])
       end
-=======
+
 (* FDO cases for decode ...
   | FDO_address_not_concrete ->
       let (ioid', id_state') = FreshIds.gen_fresh_id state.id_state in
@@ -2175,7 +2175,6 @@ let get_fetch_instruction_continuation params
 let po_predecessors_all_finished (iic: instruction_in_context) : bool =
   forall (iprev MEM iic.active_prefix).
     iprev.finished
-
 
 
 (** enumerate all instruction transitions of thread *****************)

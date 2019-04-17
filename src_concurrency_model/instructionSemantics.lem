@@ -69,7 +69,6 @@ type fetch_and_decode_outcome =
   | FDO_illegal_fetch_address
   | FDO_decode_error of decode_error_t
 
-
 let decode_error_compare e1 e2 =
   match (e1, e2) with
   (* we assume 'opcode' deterministically defines 'instruction_ast' so we only

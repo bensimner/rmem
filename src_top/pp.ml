@@ -759,7 +759,7 @@ let pp_reg m r =
   Printing_functions.reg_name_to_string r
 
 let pp_instruction m
-      (symbol_table: ((footprint * size) * string) list)
+      (symbol_table: ((address * size) * string) list)
       (inst: instruction_ast)
       (program_loc: Sail_impl_base.address) =
   begin match inst with
@@ -857,7 +857,7 @@ let pp_bool m b =
 
 let pp_decode_error m de addr = match de with
   | Unsupported_instruction_error0 (_opcode, (i:instruction_ast)) ->
-     sprintf "Unsupported instruction (%s)" (pp_instruction m.pp_symbol_table i addr)
+     sprintf "Unsupported instruction (%s)" (pp_instruction m m.pp_symbol_table i addr)
   | Not_an_instruction_error0 (op:opcode) -> sprintf "Not an instruction (value: %s)" (pp_opcode m op)
   | Internal_decode_error (s:string) -> "Internal error "^s
 

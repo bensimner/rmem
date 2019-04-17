@@ -694,7 +694,7 @@ let starting_fetch_inst
     : instruction_instance
   =
  <| instance_ioid =     new_ioid;
-    instance_id_state = MachineDefFreshIds.initial_id_state new_ioid;
+    instance_id_state = FreshIds.initial_id_state new_ioid;
     program_loc =       loc;
     program_opcode =    Nothing;
     instruction =       Unfetched;

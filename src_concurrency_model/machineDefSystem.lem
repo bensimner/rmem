@@ -49,67 +49,6 @@ open import MachineDefPromisingARM
 
 (** initial system state ********************************************)
 
-<<<<<<< HEAD
-let default_model_params =
-  let default_ss =
-    <|  ss_model = PLDI11_storage_model;
-        ss_sc = false;
-        (*coherence_commit = Partial_CC;*)
-        pw = Only_at_end;
-        (*bc = Weak_BC;*)
-        new_coh =  Use_old_coherence ;
-        (*new_coh =     No_new_coherence;*)
-        flowing_topology = FTopo_leaf 0;
-        promise_first = false;
-        model_fetch_type = Fetch_Atomic;
-        ss_icache_type = Icache_Many;
-    |>
-  in
-
-  let default_t =
-    <|  thread_model                   = PLDI11_thread_model;
-        thread_restriction             = RestrictionNone;
-        thread_fsa                     = Flowing_same_address_strict;
-        thread_rwc                     = Forbid_prev_uncommitted_read_type0;
-        thread_rr                      = Restart_on_read_satisfy;
-        thread_allow_tree_speculation  = true;
-        thread_allow_write_subsumption = false;
-        thread_fail_on_loop            = false;
-        thread_isa_info                = MachineDefISAInfoPPCGen.ppcgen_ism;
-        thread_loop_unroll_limit       = Nothing;
-        thread_fetch_limit             = Just 20;
-        thread_fetch_from_ss           = false;
-        thread_fetch_order             = Fetch_Sequential;
-
-        thread_run_after_stop_promising = true;
-        thread_certify_after_stop_promising = false;
-        thread_promising_fuel = 10000;
-
-        branch_targets                 = Map.empty;
-
-        promising_partial_order = false;
-    |>
-  in
-
-  <|  ss             = default_ss;
-      t              = default_t;
-      shared_memory  = Nothing;
-  |>
-
-type initial_state_record =
-  <|  isr_params:            model_params;
-      isr_program:           instruction_semantics -> address -> fetch_and_decode_outcome; (* TODO: remove isr_program *)
-      isr_return_addr:       list (thread_id * address);
-      isr_thread_ids:        list thread_id;
-      isr_register_data:     thread_id -> list (reg_base_name * register_value);
-      isr_register_values:   thread_id -> reg_base_name -> register_value;
-      isr_first_instruction: thread_id -> maybe address;
-      (* TODO: make a isr_initial_program_memory or something? *)
-      isr_memory:            list write;
-  |>
-=======
->>>>>>> master
-
 (* the initial writes should be a list of one write for each address that the program will use *)
 let initial_system_state
     (instruction_semantics:   instruction_semantics)
