@@ -21,15 +21,17 @@ open import Pervasives_extra
 (* emacs fontification -*-caml-*- *)
 
 open import Sail_impl_base
-open import MachineDefDebug
-open import MachineDefUtils
-open import MachineDefFreshIds
+open import Debug
+open import Utils
+open import FreshIds
+open import Events
+open import BasicTypes
+open import Params
+open import Fragments
+open import InstructionSemantics
 open import MachineDefTypes
-open import MachineDefEvents
 open import MachineDefThreadSubsystemUtils
 open import MachineDefThreadSubsystem
-open import MachineDefFragments
-open import MachineDefInstructionSemantics
 open import MachineDefSystem
 
 open import Sail_values
@@ -463,15 +465,12 @@ let fetched_address (addr: address) (sst: system_state_and_transitions 'ts 'ss) 
                           (fun _prefix i -> i.program_loc = addr) t))
     sst.sst_state.thread_states
 
-let trans_fetches_address
-    (addr:  address)
-    (state: system_state_and_transitions 'ts 'ss)
-    : trans 'ts 'ss -> bool
+let trans_fetch_address : trans 'ts 'ss -> maybe address
   = function
   | T_trans (T_sync (T_fetch tl) _) ->
-      let addr' = tl.tl_label.fr_addr in
-      addr = addr'
-  | _ -> false
+      let (addr', _) = tl.tl_label.fr_addr in
+      Just addr'
+  | _ -> Nothing
   end
 
 let is_ioid_finished (target_ioid : ioid) (sst: system_state_and_transitions 'ts 'ss) : bool =
@@ -520,7 +519,19 @@ let stop_promising_priority : trans 'ts 'ss -> bool = function
 end
 
 
-(* TODO: maybe Shaked can add a small explanation of how this is used? *)
+(* Consider an AArch64 STXR instruction, right after fetching it. At this
+state (after some internal transitions) we have two enabled transitions
+for the instruction: T_failed_store_excl and T_successful_store_excl.
+It is safe to nondeterministically take one of them eagerly. That is,
+the exhaustive search need to explore both of these transitions, but it
+can take each one of them eagerly (before any of the other transitions
+currently avilable). Note that these transitions are not "eager"
+transitions, as we need to make non-deterministic choice between the two,
+but the choice can be done eagerly.
+'priority_transitions' returns a list of transition predicates. Each
+predicate identifies a set of transitions from which we can
+nondeterministically chose one eagerly. The additional bool, when true,
+indicates that the transitions should be further subdivided by ioid. *)
 let priority_transitions params (ss_final_state : bool) (_: eager_mode) :
       list ((trans 'ts 'ss -> bool) * bool) =
   match params.t.thread_model with

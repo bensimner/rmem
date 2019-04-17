@@ -32,21 +32,6 @@
 
 (** output options **************************************************)
 
-type verbosity_level =
-  | Quiet                  (* -q, minimal output and things important for herd-tools *)
-  | Normal                 (* default, things normal users would like to see *)
-  | ThrottledInformation   (* -v, normal mode for informed users, no more than one line
-                           every 5 seconds or so *)
-  | UnthrottledInformation (* -v -v, even more information, might render the output unusable *)
-  | Debug                  (* -debug, cryptic information *)
-
-val verbosity_levels: verbosity_level list
-val pp_verbosity_level: verbosity_level -> string
-
-val verbosity:             verbosity_level ref
-val increment_verbosity:   unit -> unit
-val is_verbosity_at_least: verbosity_level -> bool
-
 val logdir: (string option) ref
 
 val dont_tool: bool ref (* "Dont" output *)
@@ -55,7 +40,7 @@ val debug_sail_interp : bool ref
 
 (** model options ***************************************************)
 
-val model_params: MachineDefTypes.model_params ref
+val model_params: Params.model_params ref
 
 val big_endian: (bool option) ref
 
@@ -64,7 +49,7 @@ has been set properly (i.e. set_model_ism was called) *)
 val get_endianness: unit -> Sail_impl_base.end_flag
 val pp_endianness: unit -> string
 
-val set_model_ism: MachineDefTypes.isa_info -> unit
+val set_model_ism: BasicTypes.isa_info -> unit
 
 val suppress_non_symbol_memory: bool ref (* ELF *)
 
@@ -73,6 +58,9 @@ val aarch64gen: bool ref
 val final_cond: string option ref (* 'Some s': change the final condition to 's' *)
 
 val branch_targets: Branch_targets_parser_base.ast list option ref
+val litmus_test_base_address: int ref
+val litmus_test_minimum_width: int ref
+
 val shared_memory: Shared_memory_parser_base.footprint list option ref
 val add_bt_and_sm_to_model_params: ((Sail_impl_base.address * int) * string) list -> unit
 
@@ -81,7 +69,6 @@ val add_bt_and_sm_to_model_params: ((Sail_impl_base.address * int) * string) lis
 val auto_follow:       bool ref
 val interactive_auto:  bool ref
 val auto_internal:     bool ref
-val dumb_terminal:     bool ref
 
 val random_seed: int option ref   (* per ppcmem invocation seed: None for fresh, or Some n for seed n *)
 
@@ -92,8 +79,6 @@ val ui_commands: (string option) ref
 val use_dwarf: bool ref
 val dwarf_source_dir: string ref
 val dwarf_show_all_variable_locations: bool ref
-
-val isa_defs_path: (string option) ref
 
 (** PP stuff ********************************************************)
 
@@ -134,6 +119,7 @@ type run_dot = (* generate execution graph... *)
   | RD_final_not_ok (* when reaching a final state that does not sat.
                     the condition (and stop) *)
 val run_dot:                   (run_dot option) ref
+val print_cexs:                bool ref
 val generateddir:              (string option) ref
 val print_hex:                 bool ref
 
@@ -164,7 +150,7 @@ type ppmode =
     pp_symbol_table: ((Sail_impl_base.address * Sail_impl_base.size) * string) list;
     pp_dwarf_static:                   Dwarf.dwarf_static option;
     pp_dwarf_dynamic:                  Types.dwarf_dynamic option;
-    pp_initial_write_ioids:            MachineDefEvents.ioid list;
+    pp_initial_write_ioids:            Events.ioid list;
     pp_prefer_symbolic_values:         bool;
     pp_hide_pseudoregister_reads:      bool;
     pp_max_finished:                   int option;
@@ -178,15 +164,11 @@ type ppmode =
     ppg_regs:                          bool;
     ppg_reg_rf:                        bool;
     ppg_trans:                         bool;
-    pp_pretty_eiid_table:              (MachineDefEvents.eiid * string) list;
+    pp_pretty_eiid_table:              (Events.eiid * string) list;
     pp_trans_prefix:                   bool;
     pp_sail:                           bool;
     pp_default_cmd:                    Interact_parser_base.ast option;
 
-(*    pp_instruction : (((Sail_impl_base.address * MachineDefTypes.size) * string) list) ->
-                     MachineDefTypes.instruction_ast ->
-                     Sail_impl_base.address ->
-                     string; *)
   }
 
 val pp_kind_lens                            : (ppmode, ppkind)                                                          Lens.t
@@ -197,7 +179,7 @@ val pp_choice_history_limit_lens            : (ppmode, int option)              
 val pp_symbol_table_lens                    : (ppmode, ((Sail_impl_base.address * Sail_impl_base.size) * string) list) Lens.t
 val pp_dwarf_static_lens                    : (ppmode, Dwarf.dwarf_static option)                                       Lens.t
 val pp_dwarf_dynamic_lens                   : (ppmode, Types.dwarf_dynamic option)                                      Lens.t
-val pp_initial_write_ioids_lens             : (ppmode, MachineDefEvents.ioid list)                                       Lens.t
+val pp_initial_write_ioids_lens             : (ppmode, Events.ioid list)                                       Lens.t
 val pp_prefer_symbolic_values_lens          : (ppmode, bool)                                                            Lens.t
 val pp_hide_pseudoregister_reads_lens       : (ppmode, bool)                                                            Lens.t
 val pp_max_finished_lens                    : (ppmode, int option)                                                      Lens.t
@@ -211,7 +193,7 @@ val ppg_ctrl_lens                           : (ppmode, bool)                    
 val ppg_regs_lens                           : (ppmode, bool)                                                            Lens.t
 val ppg_reg_rf_lens                         : (ppmode, bool)                                                            Lens.t
 val ppg_trans_lens                          : (ppmode, bool)                                                            Lens.t
-val pp_pretty_eiid_table_lens               : (ppmode, (MachineDefEvents.eiid * string) list)                            Lens.t
+val pp_pretty_eiid_table_lens               : (ppmode, (Events.eiid * string) list)                            Lens.t
 val pp_trans_prefix_lens                    : (ppmode, bool)                                                            Lens.t
 val pp_sail_lens                            : (ppmode, bool)                                                            Lens.t
 val pp_default_cmd_lens                     : (ppmode, Interact_parser_base.ast option)                                 Lens.t
@@ -224,7 +206,7 @@ val ppmode_for_hashing : ppmode
 
 val elf_threads: int ref
 
-val flowing_topologies : MachineDefTypes.flowing_topology list ref
+val flowing_topologies : Params.flowing_topology list ref
 val topauto: bool ref
 
 (* topologies to use for web interface (not for text)*)
@@ -232,4 +214,4 @@ val topology_2: string ref
 val topology_3: string ref
 val topology_4: string ref
 
-val get_topologies : int -> MachineDefTypes.flowing_topology list
+val get_topologies : int -> Params.flowing_topology list

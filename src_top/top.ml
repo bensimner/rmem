@@ -25,7 +25,7 @@
 (*                                                                                                         *)
 (*=========================================================================================================*)
 
-open MachineDefTypes
+open Params
 
 let logfile_name name =
   begin match !Globals.logdir with
@@ -43,7 +43,7 @@ let rec range from until =
 module Run_test (Test_file: Test_file.S) = struct
   (* name is either a file name to read the test from or the name of
   the test if data is provided *)
-  let run (run_options: RunOptions.t) (name: string) (data: Test_file.data option) (isa_callback: (MachineDefTypes.instruction_semantics_mode -> unit) option) : unit =
+  let run (run_options: RunOptions.t) (name: string) (data: Test_file.data option) (isa_callback: (InstructionSemantics.instruction_semantics_mode -> unit) option) : unit =
     (* read the file/data *)
     let (test_info, test) =
       begin match data with
@@ -52,17 +52,8 @@ module Run_test (Test_file: Test_file.S) = struct
       end
     in
 
-    (** FIXME: currently, RISC-V works only with shallow-embedding, hence
-    we force 'interpreter = false' in run_options, even if the user explicitly
-    did '-shallow_embedding false' *)
     let run_options =
-      if test_info.Test.ism = RISCV_ism then
-        {run_options with interpreter = false}
-      else
-        run_options
-    in
-
-    let run_options =
+      let open RunOptions in
       match !Globals.model_params.shared_memory with
       | Some sm ->
         { run_options with
@@ -78,9 +69,11 @@ module Run_test (Test_file: Test_file.S) = struct
     if ISAModel.ISADefs.isa_defs_thunk () = Interp_ast.Defs [] && run_options.RunOptions.interpreter then
       print_endline ("Warning: the interpreter ISA defs are missing");
     let module ConcModel  =
-      (val (Concurrency_model.make
+      (val (Machine_concurrency_model.make
               (module ISAModel)
-              !Globals.model_params.t.thread_model !Globals.model_params.ss.ss_model)) in
+              !Globals.model_params.t.thread_model
+              !Globals.model_params.ss.ss_model))
+    in
 
     (* calculate list of initial states (paired with their topology options) *)
     let initial_state_records =
@@ -103,10 +96,10 @@ module Run_test (Test_file: Test_file.S) = struct
     in
 
     (* specially important for quiet mode as Luc's tools rely on this *)
-    if !Globals.verbosity <> Globals.Normal
+    if !Structured_output.verbosity <> Structured_output.Normal
       && not !Globals.dont_tool then
     begin
-      Screen_base.otStrLine "#Endianness: %s" (Globals.pp_endianness ())
+      Structured_output.strLine "#Endianness: %s" (Globals.pp_endianness ())
       |> Screen.show_message (Globals.get_ppmode ());
     end;
 
@@ -141,7 +134,7 @@ let from_litmus_data
     (run_options: RunOptions.t)
     (name:        string)
     (data:        Litmus_test_file.data)
-    (isa_callback: (MachineDefTypes.instruction_semantics_mode -> unit) option)
+    (isa_callback: (InstructionSemantics.instruction_semantics_mode -> unit) option)
     : unit
   =
   Run_litmus.run run_options name (Some data) isa_callback
@@ -150,7 +143,7 @@ let from_ELF_data
     (run_options: RunOptions.t)
     (name:        string)
     (data:        Elf_test_file.data)
-    (isa_callback: (MachineDefTypes.instruction_semantics_mode -> unit) option)
+    (isa_callback: (InstructionSemantics.instruction_semantics_mode -> unit) option)
     : unit
   =
   Run_elf.run run_options name (Some data) isa_callback

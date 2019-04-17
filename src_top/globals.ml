@@ -31,56 +31,10 @@
 (* let solver = ref "MMExplorer2" *)
 (* let candidates = ref None *)
 
+open Params
+
 
 (** output options **************************************************)
-
-type verbosity_level =
-  | Quiet                  (* -q, minimal output and things important for herd-tools *)
-  | Normal                 (* default, things normal users would like to see *)
-  | ThrottledInformation   (* -v, normal mode for informed users, no more than one line
-                           every 5 seconds or so *)
-  | UnthrottledInformation (* -v -v, even more information, might render the output unusable *)
-  | Debug                  (* -debug, cryptic information *)
-
-let verbosity_levels = [
- Quiet                  ;
- Normal                 ;
- ThrottledInformation   ;
- UnthrottledInformation ;
- Debug                  ]
-
-let pp_verbosity_level v =
-  match v with
-  | Quiet                  -> "Quiet"
-  | Normal                 -> "Normal"
-  | ThrottledInformation   -> "ThrottledInformation"
-  | UnthrottledInformation -> "UnthrottledInformation"
-  | Debug                  -> "Debug"
-
-
-
-let verbosity = ref Normal
-
-let increment_verbosity = fun () ->
-  verbosity :=
-    begin match !verbosity with
-    | Quiet                  -> Normal
-    | Normal                 -> ThrottledInformation
-    | ThrottledInformation   -> UnthrottledInformation
-    | UnthrottledInformation -> Debug
-    | Debug                  -> Debug
-    end
-
-let is_verbosity_at_least (verb: verbosity_level) : bool =
-  let int_of_verbosity_level v =
-    match v with
-    | Quiet                  -> 0
-    | Normal                 -> 1
-    | ThrottledInformation   -> 2
-    | UnthrottledInformation -> 3
-    | Debug                  -> 4
-  in
-  int_of_verbosity_level !verbosity >= int_of_verbosity_level verb
 
 let logdir = ref None
 
@@ -92,11 +46,10 @@ let debug_sail_interp = ref false
 
 (* model_params should probably not be changed after the initial state
 was created *)
-let model_params = ref MachineDefSystem.default_model_params
+let model_params = ref Params.default_model_params
 
 let big_endian = ref None
 (*let big_endian = fun () -> false
-  let open MachineDefTypes in
   begin match !model_params.t.thread_isa_info.ism with
   | PPCGEN_ism    -> true
   | AARCH64_ism _ -> false
@@ -108,7 +61,8 @@ has been set properly (i.e. set_model_ism was called) *)
 let get_endianness = fun () ->
   begin match !big_endian with
   | None ->
-      let open MachineDefTypes in
+      let open InstructionSemantics in
+      let open BasicTypes in
       begin match !model_params.t.thread_isa_info.ism with
       | PPCGEN_ism    -> Sail_impl_base.E_big_endian
       | AARCH64_ism _ -> Sail_impl_base.E_little_endian
@@ -128,10 +82,9 @@ let pp_endianness = fun () ->
 
 let set_model_ism ism =
   model_params :=
+    let open Params in
     {!model_params with
-        MachineDefTypes.t = {!model_params.MachineDefTypes.t with
-                                MachineDefTypes.thread_isa_info = ism;
-                            }
+        t = {!model_params.t with thread_isa_info = ism; }
     }
 
 let suppress_non_symbol_memory = ref false (* ELF *)
@@ -141,6 +94,9 @@ let aarch64gen = ref false
 let final_cond = ref None
 
 let branch_targets = ref None
+
+let litmus_test_base_address = ref 0x00001000
+let litmus_test_minimum_width = ref 0x100
 
 let shared_memory = ref None
 
@@ -162,7 +118,6 @@ let auto_follow       = ref false
 let random_seed       = ref (None : int option)
 let interactive_auto  = ref false
 let auto_internal     = ref false
-let dumb_terminal     = ref false
 
 let follow = ref ([] : Interact_parser_base.ast list)
 
@@ -171,8 +126,6 @@ let ui_commands = ref None
 let use_dwarf = ref false
 let dwarf_source_dir = ref ""
 let dwarf_show_all_variable_locations = ref false (* later will probably refactor into ppmode *)
-
-let isa_defs_path = ref None
 
 (** PP options ******************************************************)
 
@@ -229,6 +182,8 @@ type run_dot = (* generate execution graph... *)
   | RD_final_not_ok (* when reaching a final state that does not sat.
                     the condition (and stop) *)
 let run_dot                    = ref None
+(* print out the candidate executions of all final states *)
+let print_cexs                 = ref false
 let generateddir               = ref None
 let print_hex                  = ref false
 
@@ -272,7 +227,7 @@ type ppmode =
     pp_symbol_table:                   ((Sail_impl_base.address * int) * string) list;
     pp_dwarf_static:                   Dwarf.dwarf_static option;
     pp_dwarf_dynamic:                  Types.dwarf_dynamic option;
-    pp_initial_write_ioids:            MachineDefEvents.ioid list;
+    pp_initial_write_ioids:            Events.ioid list;
     pp_prefer_symbolic_values:         bool;
     pp_hide_pseudoregister_reads: bool;
     pp_max_finished:                   int option;
@@ -286,15 +241,11 @@ type ppmode =
     ppg_regs:                          bool;
     ppg_reg_rf:                        bool;
     ppg_trans:                         bool;
-    pp_pretty_eiid_table:              (MachineDefEvents.eiid * string) list;
+    pp_pretty_eiid_table:              (Events.eiid * string) list;
     pp_trans_prefix:                   bool;
     pp_sail:                           bool;
     pp_default_cmd:             Interact_parser_base.ast option;
 
-(*    pp_instruction : (((Sail_impl_base.address * MachineDefTypes.size) * string) list) ->
-                     MachineDefTypes.instruction_ast ->
-                     Sail_impl_base.address ->
-                     string; *)
   }
 
 (* ppmode lenses *)
@@ -354,14 +305,6 @@ let get_ppmode : unit -> ppmode = fun () ->
     pp_trans_prefix                       = true;
     pp_sail                               = !pp_sail;
     pp_default_cmd                        = None;
-    (*    pp_instruction = Pp.pp_instruction *)
-
-      (*fun
-        (_: ((Sail_impl_base.address * MachineDefTypes.size) * string) list)
-        (inst: Sail_impl_base.instruction)
-        (_: Sail_impl_base.address)
-      ->
-      Printing_functions.instruction_to_string inst; *)
   }
 
 let ppmode_for_hashing : ppmode =
@@ -398,7 +341,7 @@ let ppmode_for_hashing : ppmode =
 
 let elf_threads = ref 1
 
-let flowing_topologies = ref ([]: MachineDefTypes.flowing_topology list)
+let flowing_topologies = ref ([]: Params.flowing_topology list)
 
 let topauto = ref false
 

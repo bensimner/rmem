@@ -25,16 +25,19 @@
 (* emacs fontification -*-caml-*- *)
 
 open import Pervasives_extra
-open import MachineDefUtils
-
 open import Sail_impl_base
-open import MachineDefTypes
-open import MachineDefFragments
-open import MachineDefFreshIds
-open import MachineDefEvents
-open import MachineDefDebug
-open import MachineDefThreadSubsystemUtils
+open import Utils
+open import Fragments
+open import FreshIds
+open import Events
+open import Debug
+open import Params
+open import InstructionSemantics
+open import BasicTypes
+open import RegUtils
 open import MachineDefInstructionPredicates
+open import MachineDefThreadSubsystemUtils
+open import MachineDefTypes
 open ListMonad
 
 (* SF: ???? *)
@@ -64,7 +67,7 @@ let initial_thread_state
     (_iws:           list write)
   =
   <| thread                     = tid;
-     id_state                   = MachineDefFreshIds.initial_id_state tid;
+     id_state                   = FreshIds.initial_id_state tid;
      return_address             = return_address;
      register_data              = rd;
      initial_register_state     = irv;
@@ -104,14 +107,22 @@ let current_reg_write_dependencies
   | Just _  -> RWD_mem_read :: reg_deps
   end
 
-
-let paired_atomic_load (iic: instruction_in_context) : maybe instruction_instance =
-  if is_memory_rmw iic.iic_instance then Just iic.iic_instance 
+(* iic_prefix is active_prefix ++ old_prefix *)
+let paired_atomic_load_aux
+      (iic_instance : instruction_instance)
+      prefix : maybe instruction_instance =
+  if is_memory_rmw iic_instance then Just iic_instance 
   else
-    let prefix = iic.active_prefix ++ iic.old_prefix in
+    (* let prefix = iic.active_prefix ++ iic.old_prefix in *)
     let atomic i = (is_atomic_load i || is_atomic_store i) && not (is_memory_rmw i) in
     Maybe.bind (List.find atomic prefix) $ fun inst ->
     if is_atomic_load inst then Just inst else Nothing
+
+let paired_atomic_load (iic: instruction_in_context) : maybe instruction_instance =
+  paired_atomic_load_aux
+    iic.iic_instance
+    (iic.active_prefix ++ iic.old_prefix)
+
 
 let rec paired_atomic_stores_helper (T its: instruction_tree) : list instruction_instance =
   its >>= fun (i, it) ->
@@ -1582,11 +1593,11 @@ let pending_memory_read_request_action params
   (* generate the read-requests *)
   let (read_requests, id_state') =
     if params.thread_restriction = RestrictionSC then
-      MachineDefEvents.make_read_request_events'
+      Events.make_read_request_events'
         iic.iic_instance.instance_id_state
         state.thread iic.iic_instance.instance_ioid addr size size read_kind
     else
-      params.thread_isa_info.make_read_request_events
+      make_read_request_events_ii params
         state.thread iic.iic_instance (addr, size) read_kind
   in
 
@@ -2086,7 +2097,7 @@ let init_fetch_instruction params
           $ "found a loop in thread " ^ show state.thread
       in
 
-      let (ioid', id_state') = MachineDefFreshIds.gen_fresh_id state.id_state in
+      let (ioid', id_state') = FreshIds.gen_fresh_id state.id_state in
       let i' = starting_fetch_inst params ioid' addr in
 
       match (params.thread_loop_unroll_limit, complete_prefix) with
@@ -2103,6 +2114,22 @@ let init_fetch_instruction params
           else
             (id_state', [i'])
       end
+=======
+(* FDO cases for decode ...
+  | FDO_address_not_concrete ->
+      let (ioid', id_state') = FreshIds.gen_fresh_id state.id_state in
+      (id_state', [starting_fetch_exception_inst_instance ioid' FDE_non_concrete_fetch_address_error addr])
+
+  | FDO_illegal_fetch_address ->
+      let (ioid', id_state') = FreshIds.gen_fresh_id state.id_state in
+      (id_state', [starting_fetch_exception_inst_instance ioid' (FDE_illegal_fetch_address_error addr) addr])
+
+  | FDO_decode_error de ->
+      let (ioid', id_state') = FreshIds.gen_fresh_id state.id_state in
+      (id_state', [starting_fetch_exception_inst_instance ioid' (FDE_decode_error de addr) addr])
+  end
+*)
+
 
 let get_fetch_instruction_continuation params
     (i_sem:        instruction_semantics)
@@ -2207,10 +2234,10 @@ let handle_write_ea_outcome
 
   let (potential_write_addresses, id_state') =
     if params.thread_restriction = RestrictionSC then
-      MachineDefEvents.make_empty_write_events'
+      Events.make_empty_write_events'
         i.instance_id_state state.thread i.instance_ioid address size size write_kind
     else
-      params.thread_isa_info.make_empty_write_events state.thread i (address, size) write_kind
+      make_empty_write_events_ii params state.thread i (address, size) write_kind
   in
 
   let state' = fun () ->
@@ -2243,7 +2270,7 @@ let handle_write_memv_outcome
   let i = iic.iic_instance in
   let () = ensure (i.subwrites.sw_potential_write_addresses <> []) "expected to have potential_write_addresses" in
 
-  let potential_writes = MachineDefEvents.set_write_values value i.subwrites.sw_potential_write_addresses [] in
+  let potential_writes = Events.set_write_values value i.subwrites.sw_potential_write_addresses [] in
 
   let update_write_forwarding_value it : instruction_tree =
     let update i =
@@ -2390,7 +2417,7 @@ let handle_barrier_outcome
         | Relaxed_thread_model   -> true
         end >>
 
-  let (b, id_state') = MachineDefEvents.make_barrier_event i.instance_id_state state.thread i.instance_ioid bk in
+  let (b, id_state') = Events.make_barrier_event i.instance_id_state state.thread i.instance_ioid bk in
 
   let state' = fun () ->
     let i' =
@@ -3670,7 +3697,7 @@ let handle_tmstart_outcome
       "a nested transaction should not have tmstart outcome" in
 
   let i = iic.iic_instance in
-  let (ts, id_state') = MachineDefEvents.make_transaction_start_event i.instance_id_state state.thread i.instance_ioid in
+  let (ts, id_state') = Events.make_transaction_start_event i.instance_id_state state.thread i.instance_ioid in
 
   let state' = fun () ->
     let i' = fun (v: register_value) ->
@@ -4174,7 +4201,7 @@ let initial_fetch_transition_of_thread
 
   (* this is a dummy ioid - morally the ioid of the (nonexistent) preceding instruction *)
   let (ioid, state) =
-    let (ioid, id_state') = MachineDefFreshIds.gen_fresh_id state.id_state in
+    let (ioid, id_state') = FreshIds.gen_fresh_id state.id_state in
     (ioid, <| state with id_state = id_state' |>)
   in
 
@@ -4327,7 +4354,7 @@ let thread_receive_transition params (state : thread_state) label =
   | SS_Flat_thread_ic cmr _                -> flat_ic_clear  cmr
   end
 
-(* based on MachineDefCandidateExecution.footprints_of_cex_instruction_instance *)
+(* based on CandidateExecution.footprints_of_cex_instruction_instance *)
 let footprints_of_instruction_instance (i:instruction_instance) : set footprint =
   Set.fromList
     ([w.w_addr | forall ((w,sls) MEM (List.concat (snd (List.unzip i.subreads.sr_writes_read_from)))) | true]

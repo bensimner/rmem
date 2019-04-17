@@ -19,24 +19,16 @@
 
 open Printf
 
-open Interp_interface
 open Sail_impl_base
-open MachineDefUtils
-open MachineDefEvents
-open MachineDefFragments
-open MachineDefTypes
-open MachineDefUI
-open MachineDefCandidateExecution
-
-open Types
-open Model_aux
+open Events
+open Fragments
+open CandidateExecution
 
 open Globals
 
-
 module StringSet = Set.Make(String)
 module IoidMap = Map.Make(struct
-  type t = MachineDefEvents.ioid
+  type t = Events.ioid
   let compare = compare
 end)
 
@@ -66,7 +58,7 @@ let pp_tex_header out test_info =
 let make_tikz_graph
     (m:         Globals.ppmode)
     (test_info: Test.info)
-    (cex:       MachineDefCandidateExecution.cex_candidate)
+    (cex:       CandidateExecution.cex_candidate)
     : unit
   =
   let replace (c: char) (n: string) (str: string) : string =
@@ -328,7 +320,7 @@ let make_tikz_graph
   in
 
   let rec instructions_path_from_tree acc
-      : MachineDefCandidateExecution.cex_instruction_tree -> MachineDefCandidateExecution.cex_instruction_instance list
+      : CandidateExecution.cex_instruction_tree -> CandidateExecution.cex_instruction_instance list
     = function
     | CEX_T []             -> List.rev acc
     | CEX_T [(inst, tree)] -> instructions_path_from_tree (inst :: acc) tree
@@ -479,7 +471,7 @@ let make_tikz_graph
   close_out tikz_out
 
 module TidMap = Map.Make(struct
-  type t = MachineDefEvents.thread_id
+  type t = Events.thread_id
   let compare t1 t2 = Pervasives.compare t1 t2
 end)
 
@@ -504,7 +496,7 @@ let make_init_state (info: Test.info) (test: Test.test) : unit =
             | regs -> TidMap.add thread_id ((reg_base_name, v) :: regs) acc
             | exception Not_found -> TidMap.add thread_id [(reg_base_name, v)] acc
         )
-        (TidMap.empty: ((MachineDefTypes.reg_base_name * int64) list) TidMap.t)
+        (TidMap.empty: ((Sail_impl_base.reg_base_name * int64) list) TidMap.t)
         test.Test.init_reg_state
 
       |> TidMap.bindings
@@ -558,20 +550,26 @@ let make_final_state (test_info: Test.info) (state: string) : unit =
   fprintf states_out "\\newcommand{\\finalstate}{%s}\n" state;
   close_out states_out
 
-module S : Pp.GraphBackend = struct
-  let make_graph m test_info s cex (nc: (int * ('ts,'ss) MachineDefTypes.trans) list) =
-    let m = { m with pp_pretty_eiid_table = Pp.pretty_eiids s; pp_kind=Ascii; pp_colours=false; pp_trans_prefix=false } in
+module Make (ConcModel: Concurrency_model.S) = struct
+(** implements GraphBackend.S with type ui_trans = ConcModel.ui_trans *)
+type ui_trans = ConcModel.ui_trans
+let make_graph m test_info cex (nc: ui_trans list) =
+  let m = { m with pp_kind=Ascii;
+                    pp_colours=false;
+                    pp_trans_prefix=false } in
 
-    make_tikz_graph m test_info cex;
+  make_tikz_graph m test_info cex;
 
-    (* hack to terminate after finding the first "final" graph *)
-    begin match !Globals.run_dot with
-    | Some RD_final
-    | Some RD_final_ok
-    | Some RD_final_not_ok
-        -> exit 0
-    | None
-    | Some RD_step
-        -> ()
-    end
-end
+  (* hack to terminate after finding the first "final" graph *)
+  begin match !Globals.run_dot with
+  | Some RD_final
+  | Some RD_final_ok
+  | Some RD_final_not_ok
+      -> exit 0
+  | None
+  | Some RD_step
+      -> ()
+  end
+(** end GraphBackend.S *)
+
+end (* Make *)

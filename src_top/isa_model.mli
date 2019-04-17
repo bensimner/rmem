@@ -18,12 +18,15 @@
 (*                                                                               *)
 (*===============================================================================*)
 
+
+type instruction_ast = InstructionSemantics.instruction_ast
+
 module type TransSail = sig
   type instruction
   type labelmap = (string * int) list
 
-  val shallow_ast_to_herdtools_ast : MachineDefTypes.instruction_ast -> instruction
-  val herdtools_ast_to_shallow_ast : instruction -> MachineDefTypes.instruction_ast
+  val shallow_ast_to_herdtools_ast : instruction_ast -> instruction
+  val herdtools_ast_to_shallow_ast : instruction -> instruction_ast
 
   val herdtools_ast_to_interp_instruction : instruction -> Interp_interface.instruction
   val interp_instruction_to_herdtools_ast : Interp_interface.instruction -> instruction
@@ -45,9 +48,10 @@ end
 
 module type ISADefs = sig
   val name : string
-  val reg_data : MachineDefTypes.registerdata
+  val reg_data : BasicTypes.registerdata
 
   val isa_defs_thunk : ?no_memo:bool -> unit -> Interp_interface.specification
+  val interp2_isa_defs_thunk : ?no_memo:bool -> unit -> (Type_check.tannot Ast.defs * Type_check.Env.t)
   val isa_memory_access : (Interp_interface.memory_reads *
                         Interp_interface.memory_read_taggeds *
                         Interp_interface.memory_writes *
@@ -69,10 +73,12 @@ val all_isa_defs : (module ISADefs) list
 module type S = sig
   module ISADefs : ISADefs
 
-  val instruction_semantics : MachineDefTypes.instruction_semantics_mode ->
-      RunOptions.t -> MachineDefTypes.instruction_semantics_p
-
-  val is_option : RunOptions.t -> MachineDefTypes.instruction_semantics_option
+  val instruction_semantics :
+    InstructionSemantics.instruction_semantics_mode ->
+    RunOptions.t ->
+    InstructionSemantics.instruction_semantics
 end
 
-val make : MachineDefTypes.instruction_semantics_mode -> (module S)
+val make :
+  InstructionSemantics.instruction_semantics_mode ->
+  (module S)

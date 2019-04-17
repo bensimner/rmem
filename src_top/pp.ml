@@ -31,14 +31,16 @@ open Printf
 
 open Interp_interface
 open Sail_impl_base
-open MachineDefUtils
-open MachineDefEvents
-open MachineDefFragments
+open Utils
+open Events
+open Params
+open BasicTypes
+open UiTypes
+open InstructionSemantics
+open Fragments
+open CandidateExecution
 open MachineDefTypes
-(* open MachineDefInstructionSemantics *)
-(* open BitwiseCompatibility *)
 open MachineDefUI
-open MachineDefCandidateExecution
 
 open Types
 open Model_aux
@@ -84,19 +86,19 @@ Notes:
 *)
 
 (* ugly wrapping function to avoid inter-dependency between linksem and model *)
-let wrap_ev (ev: MachineDefSystem.dwarf_evaluation_context) : Dwarf.evaluation_context =
+let wrap_ev (ev: DwarfTypes.dwarf_evaluation_context) : Dwarf.evaluation_context =
   { Dwarf.read_register =
     (function n ->
-      match ev.MachineDefSystem.dec_read_register n with
-      | MachineDefSystem.DRRR_result n' -> Dwarf.RRR_result n'
-      | MachineDefSystem.DRRR_not_currently_available -> Dwarf.RRR_not_currently_available
-      | MachineDefSystem.DRRR_bad_register_number -> Dwarf.RRR_bad_register_number);
+      match ev.DwarfTypes.dec_read_register n with
+      | DwarfTypes.DRRR_result n' -> Dwarf.RRR_result n'
+      | DwarfTypes.DRRR_not_currently_available -> Dwarf.RRR_not_currently_available
+      | DwarfTypes.DRRR_bad_register_number -> Dwarf.RRR_bad_register_number);
     Dwarf.read_memory =
     (function n1 -> function n2 ->
-      match ev.MachineDefSystem.dec_read_memory n1 n2 with
-      | MachineDefSystem.DMRR_result n' -> Dwarf.MRR_result n'
-      | MachineDefSystem.DMRR_not_currently_available -> Dwarf.MRR_not_currently_available
-      | MachineDefSystem.DMRR_bad_address -> Dwarf.MRR_bad_address);
+      match ev.DwarfTypes.dec_read_memory n1 n2 with
+      | DwarfTypes.DMRR_result n' -> Dwarf.MRR_result n'
+      | DwarfTypes.DMRR_not_currently_available -> Dwarf.MRR_not_currently_available
+      | DwarfTypes.DMRR_bad_address -> Dwarf.MRR_bad_address);
   }
 
 
@@ -206,7 +208,7 @@ let eiids_of_instruction i =
           (* HACK: the barrier has not been committed so there is no barrier
           event yet. We assume there will be exactly one barrier event from
           the instruction and that it will get the next fresh id *)
-          [fst (MachineDefFreshIds.gen_fresh_id i.instance_id_state)]
+          [fst (FreshIds.gen_fresh_id i.instance_id_state)]
         else
           List.map (fun b -> b.beiid) i.committed_barriers
     | _ -> []
@@ -380,7 +382,7 @@ let colour_changed3 m (cs:string changed3) =
         match m.Globals.pp_kind with
         | Hash  -> s
         | Ascii -> col_dark_gray s
-        | Html  -> "<span class='changed_gone'>"^ s ^"</span>"
+        | Html  -> "<span class='rmem changed_gone'>"^ s ^"</span>"
         | Latex -> "\\mydarkgray{" ^ s ^"}"
       else s
   | C3_unchanged s -> s
@@ -389,7 +391,7 @@ let colour_changed3 m (cs:string changed3) =
         match m.Globals.pp_kind with
         | Hash  -> s
         | Ascii -> col_red s
-        | Html  -> "<span class='changed_new'>"^ s ^"</span>"
+        | Html  -> "<span class='rmem changed_new'>"^ s ^"</span>"
         | Latex -> "\\myred{" ^ s ^"}"
       else s
 
@@ -453,6 +455,15 @@ let pp_rightbrace m =
   | Ascii | Html | Hash -> "}"
   | Latex -> "\\myrb{}"
 
+let pp_lt m =
+  match m.Globals.pp_kind with
+  | Ascii | Hash | Latex -> "<"
+  | Html -> "&lt;"
+
+let pp_gt m =
+  match m.Globals.pp_kind with
+  | Ascii | Hash | Latex -> ">"
+  | Html -> "&gt;"
 
 let pp_arrow m =
   match m.Globals.pp_kind with
@@ -527,7 +538,7 @@ let colour_tran_id m s =
     match m.Globals.pp_kind with
     | Hash  -> s
     | Ascii -> col_green s
-    | Html  -> "<span class='tran_id'>"^ s ^"</span>"
+    | Html  -> "<span class='rmem tran_id'>"^ s ^"</span>"
     | Latex -> "\\mygreen{" ^ s ^"}"
   else s
 
@@ -536,7 +547,7 @@ let colour_memory_action m s =
     match m.Globals.pp_kind with
     | Hash  -> s
     | Ascii -> col_cyan s
-    | Html  -> "<span class='memory_action'>"^ s ^"</span>"
+    | Html  -> "<span class='rmem memory_action'>"^ s ^"</span>"
     | Latex -> "\\mycyan{" ^ s ^"}"
   else s
 
@@ -556,7 +567,7 @@ let colour_unfinished_instruction m s =
     match m.Globals.pp_kind with
     | Hash  -> s
     | Ascii -> col_bold (col_yellow s)
-    | Html  -> "<span class='warning'>" ^ s ^ "</span>"
+    | Html  -> "<span class='rmem warning'>" ^ s ^ "</span>"
     | Latex -> "\\myyellow{" ^ s ^ "}"
   else s
 
@@ -584,7 +595,7 @@ let colour_sail m s =
         | Not_found -> s) in
         pp_string s ^ "\n" ^ *)
         col_cyan s
-    | Html  -> "<span class='sail'>"^ s ^"</span>"
+    | Html  -> "<span class='rmem sail'>"^ s ^"</span>"
     | Latex -> "\\myblue{" ^ s ^"}"
   else s
 
@@ -616,7 +627,7 @@ let rec lookup_symbol_and_offset
   match st with
   | ((a,0),s) :: st' -> if a = a2 then Some (s, 0) else lookup_symbol_and_offset st' a2
   | (fp,s) :: st' ->
-      begin match MachineDefFragments.offset_in_footprint fp a2 with
+      begin match Fragments.offset_in_footprint fp a2 with
       | Some 0 -> Some (s, 0)
       | Some i -> Some (s, i)
       | None -> lookup_symbol_and_offset st' a2
@@ -748,8 +759,8 @@ let pp_reg m r =
   Printing_functions.reg_name_to_string r
 
 let pp_instruction m
-      (symbol_table: (footprint * string) list)
-      (inst: MachineDefTypes.instruction_ast)
+      (symbol_table: ((footprint * size) * string) list)
+      (inst: instruction_ast)
       (program_loc: Sail_impl_base.address) =
   begin match inst with
   | Fetch_error -> "fetch error"
@@ -845,10 +856,10 @@ let pp_bool m b =
 
 
 let pp_decode_error m de addr = match de with
-  | MachineDefTypes.Unsupported_instruction_error0 (_opcode, (i:MachineDefTypes.instruction_ast)) ->
-     sprintf "Unsupported instruction (%s)" (pp_instruction m m.pp_symbol_table i addr)
-  | MachineDefTypes.Not_an_instruction_error0 (op:opcode) -> sprintf "Not an instruction (value: %s)" (pp_opcode m op)
-  | MachineDefTypes.Internal_decode_error (s:string) -> "Internal error "^s
+  | Unsupported_instruction_error0 (_opcode, (i:instruction_ast)) ->
+     sprintf "Unsupported instruction (%s)" (pp_instruction m.pp_symbol_table i addr)
+  | Not_an_instruction_error0 (op:opcode) -> sprintf "Not an instruction (value: %s)" (pp_opcode m op)
+  | Internal_decode_error (s:string) -> "Internal error "^s
 
 (* TODO: need to feed in a pp mode (part of m) into the
 interpreter code so that special characters can be printed in
@@ -1148,23 +1159,23 @@ let pp_slice' m (i1,i2) = if i1 = i2 then sprintf "[%d]" i1 else sprintf "[%d-%d
 
 let pp_read_with_slices_uncoloured m r unsat_slices =
   pp_read_uncoloured m r ^
-  if unsat_slices = [MachineDefFragments.complete_slice r.r_addr] then ""
+  if unsat_slices = [Fragments.complete_slice r.r_addr] then ""
   else " " ^ (pp_list m (pp_slice' m) unsat_slices)
 
 let pp_read_with_slices_and_view_uncoloured m r unsat_slices view =
-  pp_read_uncoloured m r ^ "(view>=" ^ pp_view m view ^ ")" ^ 
-  if unsat_slices = [MachineDefFragments.complete_slice r.r_addr] then ""
+  pp_read_uncoloured m r ^ "(view" ^ pp_gt m ^ "=" ^ pp_view m view ^ ")" ^
+  if unsat_slices = [Fragments.complete_slice r.r_addr] then ""
   else " " ^ (pp_list m (pp_slice' m) unsat_slices)
 
 let pp_write_slice m write slice =
-  let slice_value = MachineDefFragments.value_of_write_slices [(write, [slice])] in
-  let slice_footprint = MachineDefFragments.footprint_of_write_slice write slice in
+  let slice_value = Fragments.value_of_write_slices [(write, [slice])] in
+  let slice_footprint = Fragments.footprint_of_write_slice write slice in
   sprintf "[%s=%s]" (pp_footprint m (Some write.w_ioid) slice_footprint) (pp_memory_value m write.w_ioid slice_value)
 (* ^ sprintf "[%s,%s]" (pp_slice m slice) (pp_memory_value m slice_value) *)
 
 let pp_write_slices_uncoloured m (w, slices) =
   pp_write_uncoloured m w ^
-  if slices = [MachineDefFragments.complete_slice w.w_addr] then ""
+  if slices = [Fragments.complete_slice w.w_addr] then ""
   else " " ^ String.concat "," (List.map (pp_write_slice m w) slices)
 
 let pp_mrs_uncoloured m r_ioid mrs =
@@ -1933,7 +1944,7 @@ let enlink m n s =
     | _ -> ""
   in
   match m.Globals.pp_kind with
-  | Html -> sprintf "<span class=\"trans%s\" id=\"%d\">%s</span>" active_str n s
+  | Html -> sprintf "<span class=\"rmem trans%s\" id=\"%d\">%s</span>" active_str n s
   | _ -> s
 
 let pp_cand m (n,t) =
@@ -2405,7 +2416,7 @@ let pp_writes_read_from_body m subreads =
       | [ C3_new (w, slices) ]
       | [ C3_unchanged (w, slices) ]
       | [ C3_gone (w, slices) ]
-        ->  rr.r_addr = w.w_addr &&  slices = [MachineDefFragments.complete_slice w.w_addr]
+        ->  rr.r_addr = w.w_addr &&  slices = [Fragments.complete_slice w.w_addr]
       | _ -> false
     in
     (if abbreviate then (pp_read_uncoloured_prefix m rr) else (pp_read_uncoloured m rr))
@@ -2537,7 +2548,7 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
            (match m.Globals.pp_kind with
             | Hash  -> s
             | Ascii -> indent ^ col_yellow s ^ "\n"
-            | Html  -> "<span class='dwarf_source_lines'>" ^ indent ^ s ^ "</span><br/>"
+            | Html  -> "<span class='rmem dwarf_source_lines'>" ^ indent ^ s ^ "</span><br/>"
             | Latex -> "\\myyellow{" ^ indent ^ s ^ "}\n"
            )
            | None ->
@@ -2915,7 +2926,7 @@ let pp_ui_machine_thread_state m (tid,ts) =
 
    let t_instructions =
      match m.Globals.pp_kind with
-     | Html -> sprintf "<div class='state_instructions'>%s</div>" ppd_instructions
+     | Html -> sprintf "<div class='rmem state_instructions'>%s</div>" ppd_instructions
      | _ -> sprintf "%s" (*"  committed [| |] and in-flight <| |> instructions:\n%s"*) ppd_instructions in
 
    let t_unacknowledged_syncs =
@@ -3026,7 +3037,7 @@ let pp_ui_promising_thread_state m (tid,ts) =
 
   let t_instructions =
     match m.Globals.pp_kind with
-    | Html -> sprintf "<div class='state_instructions'>%s</div>" ppd_instructions
+    | Html -> sprintf "<div class='rmem state_instructions'>%s</div>" ppd_instructions
     | _ -> sprintf "%s" (*"  committed [| |] and in-flight <| |> instructions:\n%s"*) ppd_instructions in
 
   t_state ^ (if m.pp_style = Globals.Ppstyle_compact then "    " else
@@ -3122,7 +3133,7 @@ let pp_transition_history_trans m s j trans =
   in
   match !Globals.pp_kind with
   | Ascii | Latex | Hash -> res ^ !linebreak
-  | Html -> "<p>" ^ res ^ "</p>" (* this (instead of <br>) is needed to make JS scrollIntoView work *)
+  | Html -> "<p class=rmem>" ^ res ^ "</p>" (* this (instead of <br>) is needed to make JS scrollIntoView work *)
 
 let pp_transition_history m ?(filter = fun _ -> true) s =
   transition_history_loc_max_width := 0;
@@ -3192,9 +3203,4 @@ let pp_ui_instruction m s tid ioid =
 let pp_ui_gen_eiid_table m (s: ('ts,'ss) MachineDefTypes.system_state) = { m with pp_pretty_eiid_table = pretty_eiids s }
 
 
-module type GraphBackend = sig
-  val make_graph :
-    Globals.ppmode -> Test.info ->
-    ('ts,'ss) MachineDefTypes.system_state -> MachineDefCandidateExecution.cex_candidate ->
-    (int * ('ts,'ss) MachineDefTypes.trans) list -> unit
-end
+
