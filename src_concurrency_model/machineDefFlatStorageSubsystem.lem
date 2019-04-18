@@ -49,7 +49,7 @@ let add_read_exclusive_write_slices state (read, writes_and_slices, se_ioids) =
   <| state with flat_ss_exclusive_reads = exclusive_reads |>
 
 
-let flat_write_memory state write =
+let flat_write_memory params state write =
   (* remove slices that will not be visible after adding the new write *)
   let old_mem =
     List.mapMaybe
@@ -73,11 +73,20 @@ let flat_write_memory state write =
       []
   in
 
+  let st' =
+     match params.ss_fetch_type with
+     | Fetch_Atomic -> state
+     | Fetch_Relaxed p ->
+         match p.flat_need_dc with
+         | true -> <| state with flat_ss_fetch_buf = write :: state.flat_ss_fetch_buf |>
+         | false -> state
+         end
+     end
+  in
+
   <| state with flat_ss_memory_writes = new_mem ++ old_mem;
       flat_ss_old_writes = write :: state.flat_ss_old_writes;
-      flat_ss_fetch_buf  = write :: state.flat_ss_fetch_buf;
   |>
-
 
 let flat_ss_coherence params state =
   let co =
@@ -99,7 +108,7 @@ let flat_propagate_write params state tl =
           state.flat_ss_exclusive_reads) >>
   let tl' = <| tl with tl_suppl = Just (MWO_successful ()) |> in
   let state_cont = fun () ->
-    let state = flat_write_memory state write in
+    let state = flat_write_memory params state write in
     let state = List.foldl add_read_exclusive_write_slices state rf in
     match excl with
     | Just read ->
@@ -179,7 +188,7 @@ let flat_try_commit_store_cond params state tl =
   let (write, rf) = tl.tl_label in
   if check_potential_atomicity params state write.w_thread rf then
     let tl' = <| tl with tl_suppl = Just (MWO_successful ()) |> in
-    let state_cont = fun () -> flat_write_memory state write in
+    let state_cont = fun () -> flat_write_memory params state write in
     return (T_Flat_try_commit_store_cond tl', Just state_cont)
   else
     let tl' = <| tl with tl_suppl = Just MWO_exclusive_failed |> in
@@ -294,12 +303,27 @@ let icache_update_addr params (icache) (addr : address) (mrs : memory_read_sourc
         |>
 
 let rec flat_try_fetch_relaxed params state tl =
+  match params.flat_need_ic with
+  | true -> flat_try_fetch_relaxed_from_icache params state tl
+  | false -> flat_try_fetch_relaxed_from_buffer_only params state tl  (* TODO: impl ... *)
+  end
+
+
+and flat_try_fetch_relaxed_from_buffer_only params state tl =
+  let addr = tl.tl_label.fr_addr in
+  let mrss = flat_fetch_from_relaxed params state addr in
+  let makeFetch mrs =
+      let fdo = tl.tl_label.fr_decode addr mrs in
+      (T_fetch (<| tl with tl_suppl = Just (Fetched_Mem mrs fdo) |>), Just (fun() -> state)) in
+  List.map makeFetch mrss
+
+and flat_try_fetch_relaxed_from_icache params state tl =
   let addr = tl.tl_label.fr_addr in
   match Map.lookup tl.tl_label.fr_tid state.flat_ss_icaches with
   | Nothing     -> failwith "flat_try_fetch_relaxed unknown thread"
   | Just icache ->
       match Map.lookup addr icache.ic_memory with
-      | Nothing ->
+      | Nothing -> (* if not in icache then eagerly perform a update i$ transition now *)
           let mrss = flat_fetch_from_relaxed params state addr in
           let state' mrs = icache_update_addr params icache addr mrs state () in
           let f mrs = flat_try_fetch_relaxed params (state' mrs) tl in
@@ -314,9 +338,9 @@ let rec flat_try_fetch_relaxed params state tl =
   end
 
 let flat_try_fetch params state tl =
-    match params.model_fetch_type with
+    match params.ss_fetch_type with
     | Fetch_Atomic -> flat_try_fetch_atomic params state tl
-    | Fetch_Relaxed -> flat_try_fetch_relaxed params state tl
+    | Fetch_Relaxed fp -> flat_try_fetch_relaxed fp state tl
     end
 
 
@@ -389,9 +413,12 @@ let mrs_not_in_icache addr mrs ic =
 let enumerate_icache_update_transitions params (state : flat_storage_subsystem_state) (icache : icache)
     : list (ss_trans flat_storage_subsystem_state) =
     let state' addr mrs = icache_update_addr params icache addr mrs state in
+    (* for each write to that addr *)
     let enumerate_addr (addr : address) : list (ss_trans flat_storage_subsystem_state) =
         let f mrs : list (ss_trans flat_storage_subsystem_state) = 
+            (* if not in the i$ *)
             if mrs_not_in_icache addr mrs icache then
+                (* add it *)
                 [SS_only (SS_Flat_icache_update icache.ic_tid addr mrs) (state' addr mrs)]
             else []
         in
@@ -401,11 +428,21 @@ let enumerate_icache_update_transitions params (state : flat_storage_subsystem_s
         let vs : list address = Set_extra.toList s in
         List.concat (List.map enumerate_addr vs)
     in
+    (* foreach addr in the i$ .. *)
     enumerate_addrs (Map.domain icache.ic_memory)
 
 let enumerate_icache_updates params state =
-    let caches = Set_extra.toList (Map.range state.flat_ss_icaches) in
-    List.concat (List.map (enumerate_icache_update_transitions params state) caches)
+   match params.ss_fetch_type with
+   | Fetch_Atomic -> []
+   | Fetch_Relaxed p ->
+      match p.flat_need_ic with
+      | false -> []
+      | true ->
+        (* for each thread's i$ ... *)
+        let caches = Set_extra.toList (Map.range state.flat_ss_icaches) in
+        List.concat (List.map (enumerate_icache_update_transitions params state) caches)
+      end
+   end
 
 let trans_ic_for_thread _params state
     (cmr : cache_maintenance_request)
@@ -416,7 +453,7 @@ let trans_ic_for_thread _params state
                 let ic_writes = state.flat_ss_ic_writes in
                 match Map.lookup addr ic_writes with
                 | Nothing -> failwith "trans-ic-for-thread addr not exist"
-                | Just (cmr, tids) -> 
+                | Just (cmr, tids) ->
                     let tids' = List.filter (fun t -> not (t = tid)) tids in
                     let ic_writes' = Map.insert addr (cmr, tids') ic_writes in
                     match Map.lookup tid state.flat_ss_icaches with

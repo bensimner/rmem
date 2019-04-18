@@ -368,16 +368,21 @@ let XX_value params = params.t.XX
 *)
 
 open MachineDefTypes
-
 let fetch_atomics_assoc =
+  let r =
+      (* TODO: eventually read these from user or sail registers *)
+      { flat_need_ic = true;
+        flat_need_dc = true;
+        flat_icache_type = Icache_Many;
+      } in
   [((Fetch_Atomic, Fetch_Sequential, false), "fetch-atomic");
-   ((Fetch_Relaxed, Fetch_Unrestricted, true), "fetch-relaxed")]
+   ((Fetch_Relaxed r, Fetch_Unrestricted, true), "fetch-relaxed")]
 let fetch_atomics_update params (mft, tfo, iffss)  =
     {params with
-        ss = {params.ss with model_fetch_type=mft};
+        ss = {params.ss with ss_fetch_type=mft};
         t  = {params.t  with thread_fetch_from_ss=iffss; thread_fetch_order=tfo};
     }
-let fetch_atomics_value params = (params.ss.model_fetch_type, params.t.thread_fetch_order, params.t.thread_fetch_from_ss)
+let fetch_atomics_value params = (params.ss.ss_fetch_type, params.t.thread_fetch_order, params.t.thread_fetch_from_ss)
 
 let model_assoc =
   [((PLDI11_storage_model,  PLDI11_thread_model),           "pldi11");

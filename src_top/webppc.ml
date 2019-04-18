@@ -152,7 +152,17 @@ let model_to_html : unit -> unit = fun () ->
   check_radio "force_sc_false"
               (not ((!Globals.model_params).t.thread_restriction = RestrictionSC && (!Globals.model_params).ss.ss_sc));
 
-  check_checkbox "relaxed_fetch" (!Globals.model_params.ss.model_fetch_type <> Fetch_Atomic);
+  check_checkbox "relaxed_fetch" (!Globals.model_params.ss.ss_fetch_type <> Fetch_Atomic);
+
+  check_radio "sequential_fetch_true"
+              (is_fetch_sequential (!Globals.model_params).t);
+  check_radio "sequential_fetch_false"
+              (not (is_fetch_sequential (!Globals.model_params).t));
+
+  check_checkbox "fetch_flat_idc"
+              (is_flat_idc_1 (!Globals.model_params));
+  check_checkbox "fetch_flat_dic"
+              (is_flat_dic_1 (!Globals.model_params));
 
   Js.Unsafe.fun_call (Js.Unsafe.js_expr "set_model") [|Js.Unsafe.inject (Js.string (List.assoc (Model_aux.model_value !Globals.model_params) Model_aux.model_assoc))|] |> ignore
 
@@ -204,6 +214,24 @@ let options_of_html : unit -> RunOptions.t = fun () ->
     Globals.model_params := Model_aux.parse_and_update_model "fetch-relaxed" !Globals.model_params
   else
     Globals.model_params := Model_aux.parse_and_update_model "fetch-atomic" !Globals.model_params;
+
+  let mp = !Globals.model_params  in
+  if is_checked_radio "sequential_fetch" then
+    Globals.model_params := { mp with t = { mp.t with thread_fetch_order =
+        Fetch_Sequential; }}
+  else
+    Globals.model_params := { mp with t = { mp.t with thread_fetch_order =
+        Fetch_Unrestricted; }};
+
+  if is_checked_checkbox "fetch_flat_idc" then
+    Globals.model_params := update_model_params_flat_idc !Globals.model_params true
+  else
+    Globals.model_params := update_model_params_flat_idc !Globals.model_params false;
+
+  if is_checked_checkbox "fetch_flat_dic" then
+    Globals.model_params := update_model_params_flat_dic !Globals.model_params true
+  else
+    Globals.model_params := update_model_params_flat_dic !Globals.model_params false;
 
   Globals.elf_threads := read_number "elf_threads";
 

@@ -31,21 +31,27 @@ type flowing_topology =
   | FTopo_leaf of thread_id
   | FTopo_join of list flowing_topology
 
-type fetch_type =  (* Enable/Disable fetching for self-modifying examples *)
-  | Fetch_Atomic  (* TODO: better name *)
-  | Fetch_Relaxed
 
 type icache_type =
   | Icache_Flat  (* a single write per address per icache *)
   | Icache_Many  (* many writes per address per icache *)
+
+type Fetch_params =
+  <| flat_need_ic : bool;
+     flat_need_dc : bool;
+     flat_icache_type : icache_type;
+  |>
+
+type fetch_type =  (* Enable/Disable fetching for self-modifying examples *)
+  | Fetch_Atomic
+  | Fetch_Relaxed of Fetch_params
 
 type ss_params =
   <| ss_model: storage_model;
      ss_sc   : bool; (* behave like SC *)
      pw      : propagate_write_params;
      new_coh : new_coherence_params;
-     model_fetch_type: fetch_type;
-     ss_icache_type: icache_type;
+     ss_fetch_type: fetch_type;
 
      (* parameters for Flowing *)
      flowing_topology : flowing_topology;
@@ -53,9 +59,24 @@ type ss_params =
      promise_first: bool;
   |>
 
-let is_relaxed_icaches params = match params.ss_icache_type with
-  | Icache_Many -> true
-  | Icache_Flat -> false
+let is_relaxed_icaches params = match params.ss_fetch_type with
+  | Fetch_Atomic -> true
+  | Fetch_Relaxed p ->
+      match p.flat_icache_type with
+      | Icache_Flat -> false
+      | Icache_Many -> true
+      end
+  end
+let update_ss_params_flat_idc params b =
+  match params.ss_fetch_type with
+  | Fetch_Atomic -> params
+  | Fetch_Relaxed p -> <| params with ss_fetch_type = Fetch_Relaxed <| p with flat_need_dc = not b |> |>
+  end
+
+let update_ss_params_flat_dic params b =
+  match params.ss_fetch_type with
+  | Fetch_Atomic -> params
+  | Fetch_Relaxed p -> <| params with ss_fetch_type = Fetch_Relaxed <| p with flat_need_ic = not b |> |>
   end
 
 type thread_flowing_same_address_params =
@@ -94,8 +115,8 @@ type thread_restriction =
 type branch_targets_map = map thread_id (map address (set address))
 
 type fetch_order =
-    | Fetch_Unrestricted
-    | Fetch_Sequential
+    | Fetch_Unrestricted (* DIC=0 *)
+    | Fetch_Sequential   (* DIC=1 *)
 
 type thread_params =
   <| thread_model:       thread_model;
@@ -129,6 +150,56 @@ type model_params =
      locations. Used by Promising. *)
      shared_memory:  maybe (set footprint)
   |>
+
+(* this property holds if the model params are valid wrt dc/ic values
+ * i.e. this property holds if the params describe something equivalent to or stronger
+ *  than some DC/IC configuration
+ * but fails if the parameters would give invalid results.
+ *)
+let prop_flat_valid_dcic params =
+  match params.ss.ss_fetch_type with
+  | Fetch_Atomic -> true
+  | Fetch_Relaxed p ->
+      (match p.flat_need_ic with
+      | false ->
+          (* if DIC=1 then must fetch in order *)
+          match params.t.thread_fetch_order with
+          | Fetch_Unrestricted -> false
+          | Fetch_Sequential -> true
+          end
+      | true -> true
+      end) &&
+      (match p.flat_need_dc with
+      | false -> true
+      | true  -> true
+      end)
+  end
+
+let is_flat_idc_1 params =
+  match params.ss.ss_fetch_type with
+  | Fetch_Atomic -> true
+  | Fetch_Relaxed p ->
+      match p.flat_need_dc with
+      | false -> true
+      | true -> false
+      end
+  end
+
+let is_flat_dic_1 params =
+  match params.ss.ss_fetch_type with
+  | Fetch_Atomic -> true
+  | Fetch_Relaxed p ->
+      match p.flat_need_ic with
+      | false -> true
+      | true -> false
+      end
+  end
+
+let update_model_params_flat_idc params b =
+  <| params with ss = update_ss_params_flat_idc params.ss b |>
+
+let update_model_params_flat_dic params b =
+  <| params with ss = update_ss_params_flat_dic params.ss b |>
 
 let is_fetch_sequential params = match params.thread_fetch_order with
   | Fetch_Sequential -> true
@@ -271,8 +342,7 @@ let default_model_params =
         (*new_coh =     No_new_coherence;*)
         flowing_topology = FTopo_leaf 0;
         promise_first = false;
-        model_fetch_type = Fetch_Atomic;
-        ss_icache_type = Icache_Many;
+        ss_fetch_type = Fetch_Atomic;
     |>
   in
 
