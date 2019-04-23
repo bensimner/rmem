@@ -216,7 +216,7 @@ let options_of_html : unit -> RunOptions.t = fun () ->
     Globals.model_params := Model_aux.parse_and_update_model "fetch-atomic" !Globals.model_params;
 
   let mp = !Globals.model_params  in
-  if is_checked_radio "sequential_fetch" then
+  if is_checked_radio "sequential_fetch_true" then
     Globals.model_params := { mp with t = { mp.t with thread_fetch_order =
         Fetch_Sequential; }}
   else
