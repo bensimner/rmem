@@ -1478,13 +1478,13 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
       ("propagate write to memory", Some info)
 
   | SS_Promising_stop_promising -> ("stop promising", None)
-  | SS_Flat_icache_update (tid, addr, mrs) ->
+  | SS_Flat_icache_update (tid, addr, w) ->
       let ioid = (0, 0) in
       let info =
           let addr_info = pp_address m (Some ioid) addr in
           sprintf "%s %s"
             addr_info
-            (pp_mrs_uncoloured m ioid mrs) in
+            (pp_write_uncoloured m w) in
       ("icache update", Some info)
 
 
@@ -2168,9 +2168,9 @@ let flat_pp_ui_storage_subsystem_state m model ss =
          pp_mapsto m;
          (pp_list m (colour_changed3_f m (fun m -> pp_mrs_uncoloured m (0,0))) mrss);
         ] in
-    sprintf "Thread %d: [%s]"
+    sprintf "Thread %d: %s"
       tid
-      (pp_list m pp_pair (Pmap.bindings_list ic.ui_ic_memory)) in
+      (pp_changed3_list m pp_write_uncoloured ic.ui_ic_memory) in
   let icaches =
     sprintf "[%s]"
       (pp_list m pp_icache (Pmap.bindings_list ss.ui_flat_ss_icaches)) in
