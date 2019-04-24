@@ -1478,13 +1478,15 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
       ("propagate write to memory", Some info)
 
   | SS_Promising_stop_promising -> ("stop promising", None)
-  | SS_Flat_icache_update (tid, addr, w) ->
+  | SS_Flat_icache_update (tid, addr, ws) ->
       let ioid = (0, 0) in
       let info =
           let addr_info = pp_address m (Some ioid) addr in
+          let memory =
+            pp_write_slices_uncoloured m ws in
           sprintf "%s %s"
             addr_info
-            (pp_write_uncoloured m w) in
+            memory in
       ("icache update", Some info)
 
 
@@ -2162,15 +2164,9 @@ let flat_pp_ui_storage_subsystem_state m model ss =
     pp_changed3_list m pp_write_uncoloured ss.ui_flat_ss_fetch_buf in
 
   let pp_icache (tid, ic) =
-    let pp_pair (addr, mrss) =
-      String.concat ""
-        [(pp_address m None addr);
-         pp_mapsto m;
-         (pp_list m (colour_changed3_f m (fun m -> pp_mrs_uncoloured m (0,0))) mrss);
-        ] in
     sprintf "Thread %d: %s"
       tid
-      (pp_changed3_list m pp_write_uncoloured ic.ui_ic_memory) in
+      (pp_changed3_list m pp_write_slices_uncoloured ic.ui_ic_memory) in
   let icaches =
     sprintf "[%s]"
       (pp_list m pp_icache (Pmap.bindings_list ss.ui_flat_ss_icaches)) in

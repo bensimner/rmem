@@ -534,7 +534,7 @@ type flowing_storage_subsystem_state =
 
 (******************** Flat Storage Subsystem ********************)
 type icache =
-  <| ic_memory: list write;
+  <| ic_memory: list (write * slices);
      ic_tid: thread_id;
   |>
 
@@ -1110,7 +1110,7 @@ type ss_only_trans =
   (*** Promising transitions: ***)
   | SS_Promising_stop_promising
   (*** Flat ifetch transitions ***)
-  | SS_Flat_icache_update of thread_id * address * write
+  | SS_Flat_icache_update of thread_id * address * (write * slices)
 
 let principal_ioid_of_ss_only_trans = function
   | SS_PLDI11_partial_coherence_commit w1 _      -> w1.w_ioid (* or maybe the other one? *)
@@ -1581,7 +1581,7 @@ type nop_ui_storage_subsystem_state 'ts 'ss =
   |>
 
 type ui_icache =
-  <| ui_ic_memory: list (changed3 write);
+  <| ui_ic_memory: list (changed3 (write * slices));
      ui_ic_tid: thread_id;
   |>
 
