@@ -41,6 +41,10 @@ open Fragments
 open CandidateExecution
 open MachineDefTypes
 open MachineDefUI
+open PromisingViews
+open PromisingTransitions
+open PromisingUI
+open PromisingThread
 
 open Types
 open Model_aux
@@ -280,6 +284,69 @@ let pretty_eiids s =
     )
     eiidss
  )
+
+
+
+let p_eiids_of_instruction_info i =
+  let reads = List.map (fun (rr, _) -> rr.reiid) (List.rev i.ii_writes_read_from) in
+  let writes =
+    List.map
+      (fun w -> w.weiid)
+      (i.ii_propagated_writes)
+  in
+  (* let barriers =
+   *   match i.instruction_kind with
+   *   | IK_barrier _ ->
+   *       if i.committed_barriers = [] then
+   *         (\* HACK: the barrier has not been committed so there is no barrier
+   *         event yet. We assume there will be exactly one barrier event from
+   *         the instruction and that it will get the next fresh id *\)
+   *         [fst (FreshIds.gen_fresh_id i.instance_id_state)]
+   *       else
+   *         List.map (fun b -> b.beiid) i.committed_barriers
+   *   | _ -> []
+   * in *)
+  (* TODO: add eiid of transaction *)
+  reads @ writes (* @ barriers *)
+
+
+let rec p_eiidss_of_instrs instrs =
+  match instrs with
+  | [] -> []
+  | ii :: instrs -> [p_eiids_of_instruction_info ii] @ p_eiidss_of_instrs instrs
+
+let p_eiids_of_thread (_tid,thread) =
+  p_eiidss_of_instrs thread.instrs
+
+
+let p_eiidss_of_threads s =
+  let threads = Pmap.bindings_list s.Promising.p_thread_states in
+  List.flatten (List.map (p_eiids_of_thread) threads)
+
+
+let p_eiidss_of_system_state s =
+  let eiidss_of_initial_writes =
+    [ List.map (fun w -> w.weiid)
+        (List.rev s.Promising.p_initial_writes) ] in
+  eiidss_of_initial_writes @ p_eiidss_of_threads s
+
+
+let p_pretty_eiids s =
+  let eiidss = p_eiidss_of_system_state s in
+  List.flatten (
+  List.mapi
+    (fun m eiids ->
+      (match eiids with
+      | [eiid] -> [(eiid, pretty_eiid m None)]
+      | _ ->
+          List.mapi
+            (fun n eiid ->
+              (eiid, pretty_eiid m (Some n)))
+            eiids)
+    )
+    eiidss
+ )
+
 
 
 let pp_eiid eiid =
@@ -1070,19 +1137,10 @@ let pp_write_uncoloured m w =
 
 let pp_writes_uncoloured m ws = String.concat " " (List.map (pp_write_uncoloured m) ws)
 
-let pp_ui_view m = function
-  | UI_Timestamp t -> string_of_int t
-  | UI_Write_Ids ids -> pp_list m pp_eiid ids
+let pp_t _m = string_of_int
+let pp_view = pp_t
 
-let pp_t = string_of_int
-
-let pp_view m = function
-  | Timestamp t -> string_of_int t
-  | Write_Ids (WI ids) -> 
-     pp_list m pp_eiid (Pset.elements ids)
-
-
-let pp_ui_c2_t m v = colour_changed2b_f m pp_ui_view v
+let pp_ui_c2_t m v = colour_changed2b_f m pp_t v
 
 
 let pp_writedata_uncoloured m wd =
@@ -1099,7 +1157,7 @@ let pp_write_and_time_uncoloured m (w,t) =
     (pp_brief_write_kind m w.w_write_kind)
     (pp_footprint m (Some w.w_ioid) w.w_addr)
     (pp_write_value m w)
-    (pp_t t)
+    (pp_t m t)
 
 let pp_write_time_and_maybetid_uncoloured m (w,t,maybetid) =
   sprintf "%s%s %s=%s @ %s%s"
@@ -1107,7 +1165,7 @@ let pp_write_time_and_maybetid_uncoloured m (w,t,maybetid) =
     (pp_brief_write_kind m w.w_write_kind)
     (pp_footprint m (Some w.w_ioid) w.w_addr)
     (pp_write_value m w)
-    (pp_t t)
+    (pp_t m t)
     (match maybetid with
      | Some tid -> " (owned by " ^ string_of_int tid ^ ")"
      | None -> ""
@@ -1127,7 +1185,7 @@ let pp_write_and_view_uncoloured' m (w,v) =
     (pp_brief_write_kind m w.w_write_kind)
     (pp_footprint m (Some w.w_ioid) w.w_addr)
     (pp_write_value m w)
-    (pp_ui_view m v)
+    (pp_view m v)
 
 let pp_transaction_start_uncoloured m ts =
   sprintf "%sTRANSACTION " (pp_pretty_eiid m ts.ts_eiid)
@@ -1267,6 +1325,12 @@ let pp_reg_read ioid m reg_read =
   match reg_read with
      | (reg,rrs,v) ->
          sprintf "%s=%s from %s" (pp_reg m reg) (pp_register_value m ioid v) (pp_rrs m ioid rrs)
+
+let pp_reg_read_without_rrs ioid m reg_read =
+  match reg_read with
+     | (reg,v) ->
+         sprintf "%s=%s" (pp_reg m reg) (pp_register_value m ioid v)
+
 
 let pp_reg_reads ioid m reg_reads =
   String.concat ", " (List.map (pp_reg_read ioid m) (optionally_hide_pseudoregister_reads m reg_reads))
@@ -1477,7 +1541,6 @@ let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
       let info = colour_memory_action m (pp_write_uncoloured m write) in
       ("propagate write to memory", Some info)
 
-  | SS_Promising_stop_promising -> ("stop promising", None)
   | SS_Flat_icache_update (tid, addr, ws) ->
       let ioid = (0, 0) in
       let info =
@@ -1497,7 +1560,6 @@ let pp_cmr cmr m =
           | CM_IC -> "IC"
           )
           (pp_address m (Some cmr.cmr_ioid) cmr.cmr_addr)
-
 
 let pp_ss_sync_label ?(graph=false) m t =
   match t with
@@ -1719,27 +1781,6 @@ let pp_t_sync_label ?(graph=false) m t =
       let info = colour_memory_action m (pp_write_uncoloured m write) in
       ("failed store-conditional instruction", Some info)
 
-  | T_Promising_mem_satisfy_read {tl_suppl = None}
-  | T_Promising_mem_satisfy_read_nonshared {tl_suppl = None} -> assert false
-
-  | T_Promising_mem_satisfy_read {tl_label = ((r,t)); tl_suppl = Some (Some (w,wt)); tl_cont = tc}
-  | T_Promising_mem_satisfy_read_nonshared {tl_label = ((r,t)); tl_suppl = Some (Some (w,wt)); tl_cont = tc} ->
-      let info =
-        sprintf "%s = [%s]"
-        (* sprintf (if lock then "%s = [%s] and lock" else "%s = [%s]") *)
-          (colour_memory_action m (pp_read_with_slices_and_view_uncoloured m r [] t))
-          (colour_memory_action m (pp_write_and_view_uncoloured m (w,wt)))
-      in
-      ("satisfy memory read", Some info)
-
-  | T_Promising_mem_satisfy_read {tl_label = ((r,t)); tl_suppl = Some None; tl_cont = tc}
-  | T_Promising_mem_satisfy_read_nonshared {tl_label = ((r,t)); tl_suppl = Some None; tl_cont = tc} ->
-      let info =
-        "(unmapped memory) " ^
-          (colour_memory_action m (pp_read_with_slices_and_view_uncoloured m r [] t))
-      in
-      ("satisfy memory read from memory", Some info)
-
   | T_TSO_mem_satisfy_read {tl_suppl = None} -> assert false
   | T_TSO_mem_satisfy_read {tl_label = r; tl_suppl = Some (Some mrss); tl_cont = tc} ->
       let info =
@@ -1771,34 +1812,6 @@ let pp_t_sync_label ?(graph=false) m t =
       let info = colour_memory_action m (pp_write_uncoloured m write) in
       ("propagate memory write to storage (unmapped address)", Some info)
   | T_propagate_write {tl_suppl = Some MWO_exclusive_failed} -> assert false
-
-  | T_Promising_fulfil_promise {tl_label = wd; tl_suppl = _; tl_cont = tc} ->
-      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
-     ("fulfill promise", Some info)
-
-  | T_Promising_propagate_write {tl_suppl = None}
-  | T_Promising_propagate_write_nonshared {tl_suppl = None} -> assert false
-
-  | T_Promising_propagate_write {tl_label = (wd,true); tl_suppl = Some MWO_successful _; tl_cont = tc} ->
-      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
-      ("promise write", Some info)
-
-  | T_Promising_propagate_write {tl_label = (wd,false); tl_suppl = Some MWO_successful _; tl_cont = tc}
-  | T_Promising_propagate_write_nonshared {tl_label = wd; tl_suppl = Some MWO_successful _; tl_cont = tc} ->
-      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
-      ("propagate memory write to storage", Some info)
-
-  | T_Promising_propagate_write {tl_label = (wd,true); tl_suppl = Some (MWO_unmapped_address _); tl_cont = tc} ->
-      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
-      ("promise write (unmapped address)", Some info)
-
-  | T_Promising_propagate_write {tl_label = (wd,false); tl_suppl = Some (MWO_unmapped_address _); tl_cont = tc}
-  | T_Promising_propagate_write_nonshared {tl_label = wd; tl_suppl = Some (MWO_unmapped_address _); tl_cont = tc} ->
-      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
-      ("propagate memory write to storage (unmapped address)", Some info)
-
-  | T_Promising_propagate_write {tl_suppl = Some MWO_exclusive_failed} 
-  | T_Promising_propagate_write_nonshared {tl_suppl = Some MWO_exclusive_failed} -> assert false
 
   | T_propagate_barrier {tl_suppl = None} -> assert false
   | T_propagate_barrier {tl_label = b; tl_cont = tc} ->
@@ -1836,16 +1849,17 @@ let pp_t_sync_label ?(graph=false) m t =
       ("abort memory transaction", Some info)
 
 
-let pp_t_thread_start_label ?(graph=false) m tl =
-  let (r_address, r_toc) = tl.tl_label in
-  begin match tl.tl_suppl with
+
+
+let pp_t_thread_start_label_aux graph m (r_address, r_toc) ioid suppl =
+  begin match suppl with
   | Some (Some new_tid) ->
       let info =
         sprintf "addr = %s%s, new_tid = %d"
-          (pp_register_value m tl.tl_cont.tc_ioid r_address)
+          (pp_register_value m ioid r_address)
           (match r_toc with
             | Some r_toc ->
-                ", toc = " ^ pp_register_value m tl.tl_cont.tc_ioid r_toc
+                ", toc = " ^ pp_register_value m ioid r_toc
             | None -> "")
           new_tid
       in
@@ -1854,16 +1868,21 @@ let pp_t_thread_start_label ?(graph=false) m tl =
   | Some None ->
       let info =
         sprintf "addr=%s%s"
-          (pp_register_value m tl.tl_cont.tc_ioid r_address)
+          (pp_register_value m ioid r_address)
           (match r_toc with
             | Some r_toc ->
-                ", toc=" ^ pp_register_value m tl.tl_cont.tc_ioid r_toc
+                ", toc=" ^ pp_register_value m ioid r_toc
             | None -> "")
       in
       ("thread start (unsuccessful)", Some info)
 
   | None -> assert false
   end
+
+let pp_t_thread_start_label ?(graph=false) m tl =
+  pp_t_thread_start_label_aux graph m tl.tl_label tl.tl_cont.tc_ioid tl.tl_suppl
+
+
 
 
 let pp_trans_label_only ?(graph=false) m (t: ('ts,'ss) trans) =
@@ -1916,6 +1935,81 @@ let pp_trans ?(graph=false) m (t: ('ts,'ss) trans) =
   | T_trans (T_thread_start tl)   -> pp_t_thread_start_trans ~graph m tl
 
 
+
+
+
+
+
+let pp_pt_trans_aux ?(graph=false) m t =
+  match t with
+
+  | PT_Read (_, (r,t), (w,wt), _) ->
+      let info =
+        sprintf "%s = [%s]"
+        (* sprintf (if lock then "%s = [%s] and lock" else "%s = [%s]") *)
+          (colour_memory_action m (pp_read_with_slices_and_view_uncoloured m r [] t))
+          (colour_memory_action m (pp_write_and_view_uncoloured m (w,wt)))
+      in
+      ("read", Some info)
+
+  | PT_Fulfil (_, wd, _, _) ->
+      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
+     ("fulfill promise", Some info)
+
+  | PT_Write (_, (wd,pr,_), _, _) ->
+      let info = colour_memory_action m (pp_writedata_uncoloured m wd) in
+      begin match pr with
+      | Promise -> ("promise write", Some info)
+      | NonPromise -> ("write", Some info)
+      end
+
+  | PT_finish (_, (addr, instr), _) ->
+      let instr_pped = pp_instruction m m.pp_symbol_table instr addr in
+      ("finish instruction: " ^ instr_pped, None)
+
+  | PT_failed_store_excl (_, _) ->
+      begin match !(Globals.model_params).t.thread_isa_info.ism with
+      | AARCH64_ism _ -> ("failed store-exclusive instruction", None)
+      | RISCV_ism     -> ("failed store-conditional instruction", None)
+      | PPCGEN_ism    -> failwith "not implemented for PPC"
+      | MIPS_ism      -> failwith "not implemented for PPC"
+      | X86_ism       -> failwith "not implemented for PPC"
+      end
+
+  | PT_exception ((_,ioid), exception_type, _) ->
+      ("raise exception", Some (pp_exception m ioid exception_type))
+
+
+let pp_pt_trans ?(graph=false) m t =
+  let tid = tid_of_pt_trans t in
+  let ioid = ioid_of_pt_trans t in
+  pp_thread_trans_prefix ~graph m tid ioid  ^
+  match pp_pt_trans_aux ~graph m t with
+  | (label, None)      -> label
+  | (label, Some info) -> label ^ ": " ^ info
+
+let pp_pt_thread_start_label ?(graph=false) m (tid,ioid) (rv,mrv) mtid' =
+  pp_t_thread_start_label_aux graph m (rv,mrv) ioid (Some mtid')
+
+
+let pp_pt_thread_start_trans ?(graph=false) m (tid,ioid) (rv,mrv) mtid' =
+  pp_thread_trans_prefix ~graph m tid ioid  ^
+  match pp_pt_thread_start_label ~graph m (tid,ioid) (rv,mrv) mtid' with
+  | (label, None)      -> label
+  | (label, Some info) -> label ^ ": " ^ info
+
+
+
+let pp_p_trans ?(graph=false) m (t: ('ts,'ss,PromisingViews.t0) p_trans) =
+  match t with
+  | PT t -> pp_pt_trans ~graph m t
+  | PSys_thread_start ((tid,ioid), (rv,mrv), tid', _) ->
+     pp_pt_thread_start_trans ~graph m (tid,ioid) (rv,mrv) tid'
+  | PSys_stop_promising -> "Stop promising"
+  | PSys_finish (_, _, _) -> "Finalise Promising execution"
+
+
+
 let principal_ioid_of_event (fe:flowing_event) =
   match fe with
   | FWrite w        -> w.w_ioid
@@ -1949,15 +2043,19 @@ let enlink m n s =
   | Html -> sprintf "<span class=\"rmem trans%s\" id=\"%d\">%s</span>" active_str n s
   | _ -> s
 
-let pp_cand m (n,t) =
+let pp_cand_aux pp_trans_f m (n,t) =
   match m.Globals.pp_kind with
-  | Html -> sprintf "  %s"  (enlink m n (colour_tran_id m ((sprintf "%-2d" n) ^ pp_trans m t)))
+  | Html -> sprintf "  %s"  (enlink m n (colour_tran_id m ((sprintf "%-2d" n) ^ pp_trans_f m t)))
   | _ -> let s = (match m.Globals.pp_default_cmd with
                   | Some (Interact_parser_base.Transition (Interact_parser_base.WithEager i)) when i = n -> "***"
                   | Some (Interact_parser_base.Transition (Interact_parser_base.WithBoundedEager (i, _))) when i = n -> "***"
                   | _ -> "   ")
          in
-         sprintf "%s %s    %s %s" s (colour_tran_id m (sprintf "%-2d" n)) (colour_tran_id m (pp_trans m t)) s
+         sprintf "%s %s    %s %s" s (colour_tran_id m (sprintf "%-2d" n)) (colour_tran_id m (pp_trans_f m t)) s
+
+let pp_cand m (n,t) = pp_cand_aux pp_trans m (n,t)
+let pp_pcand m (n,t) = pp_cand_aux pp_p_trans m (n,t)
+
 
 (** pp a UI storage subsystem state *)
 
@@ -2309,80 +2407,67 @@ let tso_pp_ui_storage_subsystem_state m model ss =
 let pp_pssto_state m model ss =
   let memory =
     pp_changed3_list_body m
-      pp_write_time_and_maybetid_uncoloured ss.ui_pssto_memory
+      pp_write_time_and_maybetid_uncoloured ss
   in
-
-  let stopped_promising = 
-    let pp _m = function
-      | true -> "(stopped_promising)"
-      | _ -> "(still promising)"
-    in
-    colour_changed2b_f m pp ss.ui_pssto_stopped_promising
-  in
-
-  let pp_ss_transitions ts =
-    String.concat "\n" (List.map (pp_cand m) ts) ^ "\n" in
 
     (*begin match m.Globals.pp_kind with
     | Ascii ->*)
       String.concat ""
        [sprintf "%s:"                           (colour_bold m "Storage subsystem state (Promising)"); !linebreak;
         "memory:  " ^ memory; !linebreak;
-        stopped_promising; !linebreak;
-        sprintf "%s"                            (pp_ss_transitions ss.ui_pssto_transitions);
        ]
     (*| Html ->
     end*)
 
-let pp_psspo_state m model ss =
-  let writes =
-    pp_changed3_list_body m pp_write_uncoloured ss.ui_psspo_writes
-  in
+(* let pp_psspo_state m model ss =
+ *   let writes =
+ *     pp_changed3_list_body m pp_write_uncoloured ss.ui_pss_writes
+ *   in
+ * 
+ *   let write_order =
+ *     pp_changed3_list_body m 
+ *       (fun m (w,w') -> sprintf "%s -> %s" (pp_eiid w) (pp_eiid w'))
+ *       ss.ui_psspo_write_order
+ *   in
+ * 
+ *   let addr_view =
+ *     let last_ioid = (-1,-1) in
+ *     pp_changed3_list_body m (fun m (w,addr) -> 
+ *         sprintf "%s -> %s"
+ *         (pp_eiid w) (pp_footprint m (Some last_ioid) addr)
+ *       )
+ *       ss.ui_psspo_addr_view
+ *   in
+ * 
+ *   let stopped_promising = 
+ *     let pp _m = function
+ *       | true -> "(stopped_promising)"
+ *       | _ -> "(still promising)"
+ *     in
+ *     colour_changed2b_f m pp ss.ui_psspo_stopped_promising
+ *   in
+ * 
+ *   let pp_ss_transitions ts =
+ *     String.concat "\n" (List.map (pp_pcand m) ts) ^ "\n" in
+ * 
+ *     (\*begin match m.Globals.pp_kind with
+ *     | Ascii ->*\)
+ *       String.concat ""
+ *        [sprintf "%s:"                           (colour_bold m "Storage subsystem state (Promising)"); !linebreak;
+ *         "writes:  " ^ writes; !linebreak;
+ *         "write_order:  " ^ write_order; !linebreak;
+ *         "addr_view:  " ^ addr_view; !linebreak;
+ *         stopped_promising; !linebreak;
+ *         sprintf "%s"                            (pp_ss_transitions ss.ui_psspo_transitions);
+ *        ]
+ *     (\*| Html ->
+ *     end*\) *)
 
-  let write_order =
-    pp_changed3_list_body m 
-      (fun m (w,w') -> sprintf "%s -> %s" (pp_eiid w) (pp_eiid w'))
-      ss.ui_psspo_write_order
-  in
 
-  let addr_view =
-    let last_ioid = (-1,-1) in
-    pp_changed3_list_body m (fun m (w,addr) -> 
-        sprintf "%s -> %s"
-        (pp_eiid w) (pp_footprint m (Some last_ioid) addr)
-      )
-      ss.ui_psspo_addr_view
-  in
-
-  let stopped_promising = 
-    let pp _m = function
-      | true -> "(stopped_promising)"
-      | _ -> "(still promising)"
-    in
-    colour_changed2b_f m pp ss.ui_psspo_stopped_promising
-  in
-
-  let pp_ss_transitions ts =
-    String.concat "\n" (List.map (pp_cand m) ts) ^ "\n" in
-
-    (*begin match m.Globals.pp_kind with
-    | Ascii ->*)
-      String.concat ""
-       [sprintf "%s:"                           (colour_bold m "Storage subsystem state (Promising)"); !linebreak;
-        "writes:  " ^ writes; !linebreak;
-        "write_order:  " ^ write_order; !linebreak;
-        "addr_view:  " ^ addr_view; !linebreak;
-        stopped_promising; !linebreak;
-        sprintf "%s"                            (pp_ss_transitions ss.ui_psspo_transitions);
-       ]
-    (*| Html ->
-    end*)
-
-
-let promising_pp_ui_storage_subsystem_state m model ss =
-  match ss with
-  | PSSTO_UI ss -> pp_pssto_state m model ss
-  | PSSPO_UI ss -> pp_psspo_state m model ss
+(* let promising_pp_ui_storage_subsystem_state m model ss =
+ *   match ss with
+ *   | PSSTO_UI ss -> pp_pssto_state m model ss
+ *   | PSSPO_UI ss -> pp_psspo_state m model ss *)
 
 
 
@@ -2394,7 +2479,6 @@ let pp_ui_storage_subsystem_state m model ss =
   | POP_UI_storage     ui_storage_subsystem -> pop_pp_ui_storage_subsystem_state     m model ui_storage_subsystem
   | NOP_UI_storage     ui_storage_subsystem -> nop_pp_ui_storage_subsystem_state     m model ui_storage_subsystem
   | TSO_UI_storage     ui_storage_subsystem -> tso_pp_ui_storage_subsystem_state     m model ui_storage_subsystem
-  | Promising_UI_storage ui_storage_subsystem -> promising_pp_ui_storage_subsystem_state m model ui_storage_subsystem
 
 (** pp an instruction instance state *)
 
@@ -2422,6 +2506,26 @@ let pp_writes_read_from_body m subreads =
 
 let pp_writes_read_from m subreads =
   "[" ^ pp_writes_read_from_body m subreads ^ "]"
+
+
+let pp_writes_read_from_body_promising m writes_read_from =
+  let pp_rr_writes_read_from (rr, write_slices) =
+    (* abbreviate if the read response reads from exactly one write and they have the same footprint *)
+    let abbreviate =
+      match write_slices with
+      | [ (w, slices) ]
+        ->  rr.r_addr = w.w_addr &&  slices = [Fragments.complete_slice w.w_addr]
+      | _ -> false
+    in
+    (if abbreviate then (pp_read_uncoloured_prefix m rr) else (pp_read_uncoloured m rr))
+    ^ " from " ^ (pp_list m (pp_write_slices_uncoloured m) write_slices)
+  in
+  (pp_list m pp_rr_writes_read_from writes_read_from)
+
+let pp_writes_read_from_promising m writes_read_from =
+  "[" ^ pp_writes_read_from_body_promising m writes_read_from ^ "]"
+
+
 
 
 let pp_requested_reads m subreads =
@@ -2755,6 +2859,167 @@ let pp_ui_instruction_instance (m:Globals.ppmode) tid indent i =
            ^ ppd_dwarf
 
 
+
+
+
+
+
+
+
+
+(* copying over many things from pp_ui_instruction_instance *)
+let pp_ui_instruction_info tid indent (m:Globals.ppmode)
+      (i : instruction_info)  =
+
+  let ppd_dwarf_source_file_lines =
+    match !Globals.use_dwarf, m.pp_dwarf_static with
+    | true, Some ds ->
+       (match pp_dwarf_source_file_lines m ds true i.ii_program_loc with
+        | Some s ->
+           (match m.Globals.pp_kind with
+            | Hash  -> s
+            | Ascii -> indent ^ col_yellow s ^ "\n"
+            | Html  -> "<span class='rmem dwarf_source_lines'>" ^ indent ^ s ^ "</span><br/>"
+            | Latex -> "\\myyellow{" ^ indent ^ s ^ "}\n"
+           )
+           | None ->
+              "")
+    | _, _ -> ""
+  in
+
+  let ppd_dwarf =
+    match m.pp_dwarf_dynamic with
+    | Some pp_dwarf_dynamic when
+            !Globals.use_dwarf &&
+            !Globals.dwarf_show_all_variable_locations ->
+        pp_dwarf_dynamic.pp_all_location_data_at_instruction tid i.ii_ioid
+    | _ -> ""
+  in
+
+
+  let ppd_the_instruction =
+    sprintf "%sioid: %s  loc: %s  %s  %s"
+      indent
+      (pad 2 (pp_pretty_ioid_padded i.ii_ioid))
+      (pp_address m (Some i.ii_ioid) i.ii_program_loc)
+      (pad pad_instruction (pp_instruction m m.pp_symbol_table i.ii_instruction i.ii_program_loc))
+      (if not (m.pp_style = Globals.Ppstyle_screenshot) then pp_maybe_opcode m i.ii_program_opcode ^ " " else "\n") in
+
+  let indent' = indent ^ "  " in
+
+  let ppd_static_analysis =
+    sprintf "instruction kind: %s\n"
+      (pp_instruction_kind m i.ii_kind)
+  in
+  let ppd_reg_reads =
+    pp_list m (pp_reg_read_without_rrs i.ii_ioid m) (List.rev i.ii_reg_reads) in
+  let ppd_reg_writes =
+    pp_list m (fun (reg,v) -> sprintf "%s=%s" (pp_reg m reg) (pp_register_value m i.ii_ioid v)) i.ii_reg_writes in
+  let ppd_writes_read_from = pp_writes_read_from_promising m i.ii_writes_read_from in
+  (* let ppd_committed_barriers =
+   *   pp_list m (pp_barrier_uncoloured m) i.ii_committed_barriers in *)
+
+  let ppd_propagated_writes =
+    pp_list m (pp_write_uncoloured m) i.ii_propagated_writes in
+
+  let ppd_dynamic_fields =
+    if not(m.pp_style = Globals.Ppstyle_screenshot) then
+      indent' ^ "mem writes_read_from: " ^ ppd_writes_read_from
+      ^ "  propagated_writes: " ^ ppd_propagated_writes
+      ^ indent' ^ "reg_reads: " ^ ppd_reg_reads ^ "\n"
+      ^ indent' ^ "reg_writes: " ^ ppd_reg_writes
+    else
+      ""
+  in
+
+  (* let ppd_transitions =
+   *   String.concat "\n" (List.map (pp_pcand m) instruction_transitions)
+   *   ^ (if instruction_transitions <> [] then "\n" else "")
+   * in *)
+
+  match m.pp_style with
+  | Globals.Ppstyle_compact ->
+
+      ppd_dwarf_source_file_lines
+      ^ indent
+      ^ (pp_pretty_ioid_padded i.ii_ioid)
+      ^ " " ^  (let ppd_loc = let s = (pp_address m (Some i.ii_ioid) i.ii_program_loc) in (if String.length s > !compact_loc_max_width then compact_loc_max_width := String.length s else ()); pad (!compact_loc_max_width) s in ppd_loc)
+      ^ " " ^
+       (pad pad_instruction (pp_instruction m m.pp_symbol_table i.ii_instruction i.ii_program_loc))
+      ^ "  " ^
+      pad 0  (* was pad 2, to indent reg r/w iff there are no mem r/w  *)
+        (
+          (if i.ii_writes_read_from = [] then ""
+           else (sprintf "mem reads: %s  " ppd_writes_read_from) )
+
+        ^ (if i.ii_propagated_writes = [] then ""
+           else sprintf "mem writes: %s  "
+           ppd_propagated_writes)
+        )
+
+      (* ^ (if i.ui_committed_barriers = [] then "" else
+       * sprintf "barriers: %s  "
+       *   ppd_committed_barriers) *)
+
+      ^ (if i.ii_reg_reads = [] then "" 
+         else sprintf "reg reads: %s  " ppd_reg_reads)
+
+      ^ (if i.ii_reg_writes = [] then "" 
+         else sprintf "reg writes: %s  " ppd_reg_writes)
+
+      ^ "\n"
+      (* ^ ppd_transitions *)
+      ^ ppd_dwarf
+
+   | Globals.Ppstyle_full
+   | Globals.Ppstyle_screenshot ->
+       if m.pp_condense_finished_instructions then
+           ppd_dwarf_source_file_lines
+           ^ sprintf "%sioid: %s  loc: %s  %s  "
+             indent
+             (pad 2 (pp_pretty_ioid_padded i.ii_ioid))
+             (pp_address m (Some i.ii_ioid) i.ii_program_loc)
+             (colour_bold m (pad pad_instruction (pp_instruction m m.pp_symbol_table i.ii_instruction i.ii_program_loc)))
+           ^ sprintf "%s%s\n"
+
+               (pad
+                  (if m.pp_kind=Latex || m.pp_style = Globals.Ppstyle_screenshot then 0 else String.length "read from: {W 0x00000fffffffefe0=0x00000000}      ")
+                  (
+                   (if i.ii_writes_read_from = [] then "" else
+                   sprintf "read from: %s  " ppd_writes_read_from)
+                   ^
+                     (if i.ii_propagated_writes = [] then "" else
+                     sprintf "mem writes: %s  " ppd_propagated_writes)
+                  ))
+
+               (* (if i.ui_committed_barriers = [] then "" else
+                * sprintf "barriers: %s  "
+                *   ppd_committed_barriers) *)
+
+               (if i.ii_reg_writes = [] then "" 
+                else sprintf "reg writes: %s" ppd_reg_writes)
+
+           (* ^ ppd_micro_op_state *)
+           (* ^ ppd_transitions *)
+           ^ ppd_dwarf
+       else
+           ppd_dwarf_source_file_lines
+           ^ ppd_the_instruction
+           ^ ppd_static_analysis
+           ^ ppd_dynamic_fields
+           (* ^ ppd_micro_op_state *)
+           (* ^ ppd_transitions *)
+           ^ ppd_dwarf
+
+
+
+
+
+
+
+
+
+
  (** pp the instruction instances of a thread state, rendering the tree structure with indentation *)
 
 let is_finished_unchanged (i: ('ts,'ss) MachineDefTypes.ui_instruction_instance) : bool =
@@ -2815,28 +3080,30 @@ let is_finished_unchanged (i: ('ts,'ss) MachineDefTypes.ui_instruction_instance)
 
   
 
-let pp_list_ui_instruction_list m tid is : (string * bool) list =
-  List.map
-    (fun ic ->
-      colour_changed3_fp m (fun m i -> (pp_ui_instruction_instance m tid "  " i, is_finished_unchanged i)) ic
-    ) is
+(* let pp_list_ui_instruction_list m tid is : (string * bool) list =
+ *   List.map
+ *     (fun ic ->
+ *       colour_changed3_fp m (fun m i -> (pp_ui_instruction_info m tid "  " i, is_finished_unchanged i)) ic
+ *     ) is *)
 
-let pp_ui_instruction_list m tid (indent:string) t : string =
-   let sbs = pp_list_ui_instruction_list m tid t in
-   match m.pp_style with
-   | Globals.Ppstyle_compact ->
-       let initial_finished =
-         let rec f xbs = match xbs with [] -> 0 | (x,b)::xbs' -> if b then 1+f xbs' else 0 in
-         f sbs in
-       let initial_finished_to_keep = match m.pp_max_finished with None -> initial_finished | Some mx -> min mx initial_finished in
-       let initial_finished_to_drop = initial_finished - initial_finished_to_keep in
-       let rec drop n xs = if n=0 then xs else match xs with [] -> [] | x::xs' -> drop (n-1) xs' in
-       let sbs' = drop initial_finished_to_drop sbs in
-       String.concat "" (List.map fst sbs')
 
-   | _ ->
-       String.concat "" (List.map fst sbs)
 
+let pp_ui_instruction_list m tid (indent:string) instrs : string =
+
+  let rec take' xs n =
+     match xs, n with
+     | _, 0 -> []
+     | [], _ -> []
+     | x :: xs, n -> x :: take' xs (n-1)
+  in
+
+  let instrs =
+    match m.pp_style, m.pp_max_finished with
+    | Globals.Ppstyle_compact, Some mx -> take' instrs mx
+    | _, _ -> instrs
+  in
+  
+  pp_changed2_list m (pp_ui_instruction_info tid indent) instrs
 
 
  let pp_plain_instruction_instance m tid (indent:string) (i:MachineDefTypes.instruction_instance)  =
@@ -2869,7 +3136,7 @@ let pp_ui_instruction_list m tid (indent:string) t : string =
  *   | None -> pp_pwrite_uncoloured m p.pwrite
  *   | Some (t,addr) -> sprintf "%s paired: (%s,%s)"
  *                        (pp_pwrite_uncoloured m p.pwrite)
- *                        (pp_ui_view m t)
+ *                        (pp_view m t)
  *                        (pp_address m (Some last_ioid) addr) *)
 
 let pp_promise _m = pp_eiid
@@ -2986,7 +3253,7 @@ let pp_ui_promising_thread_state m (tid,ts) =
 
   let ppd_vReg = 
     pp_changed3_list_body m 
-      (fun m (rbn,t) -> rbn ^ ": " ^ pp_ui_view m t)
+      (fun m (rbn,t) -> rbn ^ ": " ^ pp_view m t)
       ts.ui_promising_vReg
   in
 
@@ -3000,13 +3267,13 @@ let pp_ui_promising_thread_state m (tid,ts) =
       | Some ((weiid,addr),view) -> sprintf "((%s,%s),%s)"
                                 (pp_eiid weiid)
                                 (pp_address m (Some last_ioid) addr)
-                                (pp_ui_view m view)
+                                (pp_view m view)
     in
     colour_changed2b_f m pp ts.ui_promising_xcl_bank
   in
 
   let ppd_vCoh =
-    pp_changed3_setlist_body m (fun m (a,v) -> pp_address m (Some last_ioid) a ^ ": " ^ pp_ui_view m v)
+    pp_changed3_setlist_body m (fun m (a,v) -> pp_address m (Some last_ioid) a ^ ": " ^ pp_view m v)
                      ts.ui_promising_vCoh in
 
   let ppd_fwd_bank =
@@ -3014,7 +3281,7 @@ let pp_ui_promising_thread_state m (tid,ts) =
         sprintf "%s: (@%s,fwd %s %s)" 
           (pp_address m (Some last_ioid) a)
           (pp_eiid t)
-          (pp_ui_view m tFwd)
+          (pp_view m tFwd)
           (if wx then ", from exclusive write" else "")
       )
       ts.ui_promising_fwd_bank in
@@ -3054,10 +3321,8 @@ let pp_ui_promising_thread_state m (tid,ts) =
   ^ t_instructions
 
 
-let pp_ui_viewhread_state m (tid,ts) =
-  match ts with
-  | UI_machine_thread_state ts -> pp_ui_machine_thread_state m (tid,ts)
-  | UI_promising_thread_state ts -> pp_ui_promising_thread_state m (tid,ts)
+let pp_ui_thread_state m (tid,ts) = pp_ui_machine_thread_state m (tid,ts)
+
 
 
 (* raw pp of values for testing *)
@@ -3094,8 +3359,13 @@ let transition_history_loc_max_width = ref 0
 let transition_history_loc_max_width' = ref 0
 
 let pp_transition_history_trans m s j trans =
-  let ioid = MachineDefTypes.principal_ioid_of_trans trans in
-  let io = MachineDefUI.lookup_ui_instruction_in_system ioid s in
+  let mioid = MachineDefTypes.principal_ioid_of_trans trans in
+  let io =
+    begin match mioid with
+    | Some ioid -> 
+       MachineDefUI.lookup_ui_instruction_in_system ioid s
+    | None -> None
+    end in
   (*  (pp_pretty_ioid_padded ioid)
   ^ " " ^ *)
   let res = string_of_int j ^ " " in
@@ -3160,8 +3430,32 @@ let pp_ui_system_state m s =
 (*  ^ (Pset.elements s.ui_model.shared_memory |> List.map (pp_footprint m None) |> String.concat "; ")
   ^ !linebreak*)
   ^ !linebreak
-  ^ String.concat !linebreak (List.map (pp_ui_viewhread_state m) s.ui_thread_states)
+  ^ String.concat !linebreak (List.map (pp_ui_thread_state m) s.ui_thread_states)
   ^ !linebreak
+
+
+
+let pp_ui_pstate m s =
+
+  let stopped_promising = 
+    let pp _m = function
+      | true -> "(stopped_promising)"
+      | _ -> "(still promising)"
+    in
+    colour_changed2b_f m pp s.p_ui_stopped_promising
+  in
+
+  pp_pssto_state m s.p_ui_model s.p_ui_storage_state
+  ^ !linebreak
+  ^ stopped_promising
+  ^ !linebreak
+  ^ !linebreak
+  ^ String.concat !linebreak (List.map (pp_ui_promising_thread_state m)
+                                s.p_ui_thread_states)
+
+
+
+
 
 let pp_ui_instruction m s tid ioid =
   let indent = "  " in
@@ -3169,31 +3463,51 @@ let pp_ui_instruction m s tid ioid =
   let ic =
     let check_ic = function C3_new i | C3_gone i | C3_unchanged i -> i.ui_instance_ioid = ioid in
 
-    match List.assoc tid s.ui_thread_states with
-    | UI_machine_thread_state ts ->
-        let rec find_inst = begin function
-          | UI_T [] -> None
-          | UI_T ((ic, ts') :: ts) ->
-              if check_ic ic then Some ic
-              else
-                begin match find_inst ts' with
-                | None -> find_inst (UI_T ts)
-                | Some ic -> Some ic
-                end
-          end
-        in
-        find_inst ts.ui_instruction_tree
+    let ts = List.assoc tid s.ui_thread_states in
+    let rec find_inst = begin function
+      | UI_T [] -> None
+      | UI_T ((ic, ts') :: ts) ->
+          if check_ic ic then Some ic
+          else
+            begin match find_inst ts' with
+            | None -> find_inst (UI_T ts)
+            | Some ic -> Some ic
+            end
+      end
+    in
+    find_inst ts.ui_instruction_tree
 
-    | UI_promising_thread_state ts ->
-        begin match List.find check_ic ts.ui_promising_instrs with
-        | ic -> Some ic
-        | exception Not_found -> None
-        end
+
+    (* | UI_promising_thread_state ts ->
+     *     begin match List.find check_ic ts.ui_promising_instrs with
+     *     | ic -> Some ic
+     *     | exception Not_found -> None
+     *     end *)
   in
 
   match ic with
   | Some ic -> colour_changed3_f m (fun m i -> pp_ui_instruction_instance m tid indent i) ic
   | None -> pp_pretty_ioid ioid ^ " (pp could not find the instruction-instance)"
+
+
+
+let pp_p_ui_instruction m s tid ioid =
+  let indent = "  " in
+
+  let ic =
+    let check_ic = function C2_new i | C2_unchanged i -> i.ii_ioid = ioid in
+    let ts = List.assoc tid s.p_ui_thread_states in
+    begin match List.find check_ic ts.ui_promising_instrs with
+    | ic -> Some ic
+    | exception Not_found -> None
+    end
+  in
+
+  match ic with
+  | Some ic -> colour_changed2_f m (fun _m i -> pp_ui_instruction_info tid indent m i) ic
+  | None -> pp_pretty_ioid ioid ^ " (pp could not find the instruction-instance)"
+
+
 
 
 let pp_ui_gen_eiid_table m (s: ('ts,'ss) MachineDefTypes.system_state) = { m with pp_pretty_eiid_table = pretty_eiids s }

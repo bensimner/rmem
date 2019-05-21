@@ -55,8 +55,6 @@ type ss_params =
 
      (* parameters for Flowing *)
      flowing_topology : flowing_topology;
-
-     promise_first: bool;
   |>
 
 let is_relaxed_icaches params = match params.ss_fetch_type with
@@ -135,11 +133,9 @@ type thread_params =
 
      branch_targets: branch_targets_map;
 
-     thread_run_after_stop_promising : bool;
-     thread_certify_after_stop_promising : bool;
-     thread_promising_fuel : nat;
-
-     promising_partial_order : bool;
+     p_par_pts_search : bool;
+     p_fuel : maybe nat;
+     p_promise_first: bool;
   |>
 
 type model_params =
@@ -341,7 +337,6 @@ let default_model_params =
         new_coh =  Use_old_coherence ;
         (*new_coh =     No_new_coherence;*)
         flowing_topology = FTopo_leaf 0;
-        promise_first = false;
         ss_fetch_type = Fetch_Atomic;
     |>
   in
@@ -361,13 +356,11 @@ let default_model_params =
         thread_fetch_from_ss           = false;
         thread_fetch_order             = Fetch_Sequential;
 
-        thread_run_after_stop_promising = true;
-        thread_certify_after_stop_promising = false;
-        thread_promising_fuel = 10000;
+        p_promise_first                = false;
+        p_par_pts_search               = false;
+        p_fuel                         = Nothing;
 
         branch_targets                 = Map.empty;
-
-        promising_partial_order = false;
     |>
   in
 

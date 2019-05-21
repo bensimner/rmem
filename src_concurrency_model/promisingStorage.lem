@@ -1,0 +1,211 @@
+(*===============================================================================*)
+(*                                                                               *)
+(*                rmem executable model                                          *)
+(*                =====================                                          *)
+(*                                                                               *)
+(*  This file is:                                                                *)
+(*                                                                               *)
+(*  Copyright Christopher Pulte, University of Cambridge 2017-2018               *)
+(*  Copyright Shaked Flur, University of Cambridge            2017               *)
+(*  Copyright Jon French, University of Cambridge             2018               *)
+(*                                                                               *)
+(*  All rights reserved.                                                         *)
+(*                                                                               *)
+(*  It is part of the rmem tool, distributed under the 2-clause BSD licence in   *)
+(*  LICENCE.txt.                                                                 *)
+(*                                                                               *)
+(*===============================================================================*)
+
+open import Relation
+open import Pervasives_extra
+open import Sail_impl_base
+open import FreshIds
+open import Events
+open import Fragments
+open import Debug
+open import Utils
+open import Params
+open import BasicTypes
+     import Map
+open ListMonad
+open import PromisingViews
+open import PromisingTransitions
+
+
+
+
+
+(******************** Promising Storage Subsystem *******************)
+
+(* write promising write IDS are (tid,addr,number of writes by tid to addr) *)
+
+type pss = list (write * t * maybe thread_id)
+
+
+
+(** Storage Subsystem *********************************************************)
+(*  Total-order based *********************************************************)
+
+(* initial state *)
+
+let pss_initial_state params threads iws = 
+  let make_write i w = (w, List.length iws - i, Nothing) in
+  List.mapi make_write iws
+
+(* NOTE: returns current time, not next timestamp *)
+val pss_view : pss -> t
+let pss_view = function
+  | [] -> (0 : nat)
+  | (w,t,_) :: _ -> t
+  end
+
+let pss_find_write pss weiid =
+  List_extra.findNonPure (fun (w,_,_) -> w.weiid = weiid) pss
+
+(* let pss_view_of_write pss id =
+ *   let (_,t,_) = pss_find_write pss id in t *)
+  
+
+(* read transition *)
+
+let pss_possible_read_writes pss (rr,t) =
+  let addr_writes = [(w,t) | forall ((w,t,_) MEM pss) 
+                           | sub_footprint rr.r_addr w.w_addr] in
+  let (after,before) = splitWhile (fun (w,wt) -> wt > t) addr_writes in
+  let ws = match before with
+  | w::ws -> w :: after
+  | [] -> after
+  end in
+  let () = ensure (ws <> []) "no write to read from found" in
+  ws
+
+let pss_receive_read pss rr t (_ : shared) = 
+  pss_possible_read_writes pss (rr,t)
+
+
+(* write transition *)
+
+let pss_can_be_atomic pss w rf_weiid = 
+  let before_w = tail (dropWhile (fun (w',_,_) -> w <> w') pss) in
+  let between = takeWhile (fun (w',_,_) -> w'.weiid <> rf_weiid) before_w in
+  forall ((w',_,_) MEM between).
+  (fst w'.w_addr <> fst w.w_addr || w'.w_thread = w.w_thread)
+
+let pss_can_store_xcl_succeed pss w rxinfo =
+  match rxinfo with
+  | Nothing -> true
+  | Just (rf_weiid,r_addr) ->
+     (fst w.w_addr <> r_addr) || (pss_can_be_atomic pss w rf_weiid)
+  end
+
+(* Assumes w' has sub-footprint of w *)
+let update_memory_write w w' = 
+  let mrs = ensure_just (mrs_from_writes w.w_addr (complete_writes [w';w]))
+              "PromisingARM: update_write failed" in
+  <| w with w_value = Just mrs.mrs_value |>
+
+let rec pss_replace_write_aux w' acc rest = 
+  match rest with
+  | [] -> failwith "no matching write to replace found"
+  | (w,t,mtid) :: rest ->
+     if sub_footprint (w'.w_addr) (w.w_addr)
+     then 
+       let () = match mtid with
+         | Just tid -> ensure (tid = w'.w_thread) "Multiple threads accessing shared memory"
+         | Nothing -> () 
+       end in
+       (List.reverseAppend ((update_memory_write w w',t, Just w'.w_thread) :: acc) rest, t)
+     else pss_replace_write_aux w' ((w,t,mtid) :: acc) rest
+  end
+
+let pss_replace_write w memory =
+  pss_replace_write_aux w [] memory
+
+let pss_receive_write pss wd shared = 
+  match shared with
+  | Shared ->
+     let t = pss_view pss in
+     let pss = (wd.wd_w,t+1,Nothing) :: pss in
+     guard (pss_can_store_xcl_succeed pss wd.wd_w wd.wd_rexinfo) >>
+     return (t+1, pss)
+  | NonShared ->
+     let (pss,t) = pss_replace_write wd.wd_w pss in
+     return (wd.wd_req_view, pss)
+  end
+
+
+
+
+(* fulfil transition *)
+
+let pss_receive_fulfil pss wd = 
+  let required_view = wd.wd_req_view in
+  let (w,t,_) = pss_find_write pss wd.wd_w.weiid in
+  guard (wd.wd_w = w && required_view < t &&
+         pss_can_store_xcl_succeed pss wd.wd_w wd.wd_rexinfo) >>
+  return t
+
+
+
+
+
+
+
+(* final state logging *)
+
+let pss_coherence pss =
+  {(w,w') | forall (((w',_,_),(w,_,_)) IN list_to_rel pss)
+          | w.w_addr = w'.w_addr}
+
+
+let pss_memory_value_of_footprint s fp = 
+  let writes = List.map (fun (w,_,_) -> write_with_complete_slice w) s in
+  let mrs = ensure_just (mrs_from_writes fp writes)
+              "promising_ss_thread_memory_value_of_footprints" in
+  mrs.mrs_value
+
+let pss_memory_value_of_footprints s fps =
+  List.map (fun fp -> (fp,pss_memory_value_of_footprint s fp)) fps
+
+(* let pss_enumerate_transitions params s = 
+ *   guard (params.ss.promise_first && not s.pss_stopped_promising) >>
+ *   let c () = <| s with pss_stopped_promising = true |> in
+ *   return (PSS_stop_promising c)
+ *   
+ * let pss_is_final_state params s = 
+ *   params.promise_first --> s.pss_stopped_promising *)
+
+
+let rec merge_pss_memories m1 m2 =
+  match (m1,m2) with
+  | ([], []) -> []
+  | (_ :: _, []) -> failwith "merge_memories: different length"
+  | ([], _ :: _) -> failwith "merge_memories: different length"
+  | ((w1,t1,maybetid1) :: ws1, (w2,t2,maybetid2) :: ws2) ->
+     match (maybetid1,maybetid2) with
+     | (Just tid1, Just tid2) ->
+        failwith ("merge_pss_memories: non-shared "^
+                    "location accessed by different threads")
+     | (Just _, _) ->
+        (w1,t1,maybetid1) :: merge_pss_memories ws1 ws2
+     | (_, Just _) ->
+        (w2,t2,maybetid2) :: merge_pss_memories ws1 ws2
+     | _ -> 
+        (w1,t1,maybetid1) :: merge_pss_memories ws1 ws2
+     end
+  end
+
+(* let merge_pss_states s1 s2 =
+ *   let memory = merge_pss_memories s1.pss_memory s2.pss_memory in
+ *   <| s1 with pss_memory = memory |>
+ * 
+ * let pss_stopped_promising pss =
+ *   pss.pss_stopped_promising *)
+
+let pss_sem = 
+  <| handle_write = pss_receive_write;
+     handle_fulfil = pss_receive_fulfil;
+     handle_read = pss_receive_read;
+     pss_view = pss_view;
+     merge_pss_states = merge_pss_memories;
+  |>

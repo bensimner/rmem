@@ -448,26 +448,12 @@ let thread_fail_on_loop_assoc =
 let thread_fail_on_loop_update params value = {params with t = {params.t with thread_fail_on_loop = value}}
 let thread_fail_on_loop_value params = params.t.thread_fail_on_loop
 
-let thread_certify_after_stop_promising_assoc =
-  [(true,       "promising_certify_after_stop_promising");
-   (false,      "promising_stop_certifying_after_stop_promising")]
-let thread_certify_after_stop_promising_update params value = 
-  {params with t = {params.t with thread_certify_after_stop_promising = value}}
-let thread_certify_after_stop_promising_value params = params.t.thread_certify_after_stop_promising
-
-let thread_run_after_stop_promising_assoc =
-  [(true,       "promising_run_after_stop_promising");
-   (false,      "promising_stop_running_after_stop_promising")]
-let thread_run_after_stop_promising_update params value = 
-  {params with t = {params.t with thread_run_after_stop_promising = value}}
-let thread_run_after_stop_promising_value params = params.t.thread_run_after_stop_promising
-
-let promising_partial_order_assoc =
-  [(true,       "promising_partial_order");
-   (false,      "promising_total_order")]
-let promising_partial_order_update params value = 
-  {params with t = {params.t with promising_partial_order = value}}
-let promising_partial_order_value params = params.t.promising_partial_order
+let p_par_pts_search_assoc =
+  [(true,       "promising_parallel_thread_state_search");
+   (false,      "promising_sequential_thread_state_search")]
+let p_par_pts_search_update params value = 
+  {params with t = {params.t with p_par_pts_search = value}}
+let p_par_pts_search_value params = params.t.p_par_pts_search
 
 
 
@@ -503,11 +489,11 @@ let bc_update params value = {params with ss = {params.ss with bc = value}}
 let bc_value params = params.ss.bc
 *)
 
-let promise_first_assoc =
+let p_promise_first_assoc =
   [(true,       "promise_first");
    (false,      "promise_anytime")]
-let promise_first_update params value = {params with ss = {params.ss with promise_first = value}}
-let promise_first_value params = params.ss.promise_first
+let p_promise_first_update params value = {params with t = {params.t with p_promise_first = value}}
+let p_promise_first_value params = params.t.p_promise_first
 
 let parsers =
   [(*  gen_parser XX_assoc XX_update; *)
@@ -521,14 +507,12 @@ let parsers =
     gen_parser thread_allow_tree_speculation_assoc thread_allow_tree_speculation_update;
     gen_parser thread_allow_write_subsumption_assoc thread_allow_write_subsumption_update;
     gen_parser thread_fail_on_loop_assoc thread_fail_on_loop_update;
-    gen_parser thread_certify_after_stop_promising_assoc thread_certify_after_stop_promising_update;
-    gen_parser thread_run_after_stop_promising_assoc thread_run_after_stop_promising_update;
-    gen_parser promising_partial_order_assoc promising_partial_order_update;
+    gen_parser p_par_pts_search_assoc p_par_pts_search_update;
 
 (*    gen_parser coherence_commit_assoc coherence_commit_update;*)
     gen_parser new_coh_assoc new_coh_update;
     gen_parser pw_assoc pw_update;
-    gen_parser promise_first_assoc promise_first_update;
+    gen_parser p_promise_first_assoc p_promise_first_update;
 (*    gen_parser bc_assoc bc_update;*)
     gen_parser fetch_atomics_assoc fetch_atomics_update;
   ]
@@ -544,14 +528,12 @@ let model_strings =
   (assoc_image thread_allow_tree_speculation_assoc) @
   (assoc_image thread_allow_write_subsumption_assoc) @
   (assoc_image thread_fail_on_loop_assoc) @
-  (assoc_image thread_certify_after_stop_promising_assoc) @
-  (assoc_image thread_run_after_stop_promising_assoc) @
-  (assoc_image promising_partial_order_assoc) @
+  (assoc_image p_par_pts_search_assoc) @
   (* storage: *)
 (*  (assoc_image coherence_commit_assoc) @*)
   (assoc_image new_coh_assoc) @
   (assoc_image pw_assoc) @
-  (assoc_image promise_first_assoc) @
+  (assoc_image p_promise_first_assoc) @
 (*  (assoc_image bc_assoc) @*)
   (assoc_image fetch_atomics_assoc)
 
@@ -567,14 +549,12 @@ let current_model params =
     (List.assoc (thread_allow_tree_speculation_value params) thread_allow_tree_speculation_assoc);
     (List.assoc (thread_allow_write_subsumption_value params) thread_allow_write_subsumption_assoc);
     (List.assoc (thread_fail_on_loop_value params) thread_fail_on_loop_assoc);
-    (List.assoc (thread_certify_after_stop_promising_value params) thread_certify_after_stop_promising_assoc);
-    (List.assoc (thread_run_after_stop_promising_value params) thread_run_after_stop_promising_assoc);
-    (List.assoc (promising_partial_order_value params) promising_partial_order_assoc);
+    (List.assoc (p_par_pts_search_value params) p_par_pts_search_assoc);
     (* storage: *)
 (*    (List.assoc (coherence_commit_value params) coherence_commit_assoc);*)
     (List.assoc (new_coh_value params) new_coh_assoc);
     (List.assoc (pw_value params) pw_assoc);
-    (List.assoc (promise_first_value params) promise_first_assoc);
+    (List.assoc (p_promise_first_value params) p_promise_first_assoc);
 (*    (List.assoc (bc_value params) bc_assoc);*)
     (List.assoc (fetch_atomics_value params) fetch_atomics_assoc);
   ]

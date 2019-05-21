@@ -1,0 +1,255 @@
+open import Pervasives
+open import Sail_impl_base
+open import BasicTypes
+open import InstructionSemantics
+open import Fragments
+open import PromisingViews
+open import Params
+open import Events
+open import Utils
+open import Assert_extra
+open ListMonad
+
+type writedata 'v = 
+  <| wd_w : write; 
+     wd_rexinfo : maybe (w_eiid * address); 
+     wd_req_view : 'v |>   
+
+let show_writedata wd = 
+  show (show wd.wd_w, (show wd.wd_rexinfo, show wd.wd_req_view))
+
+instance forall 'a. Show 'a => (Show (writedata 'a))
+  let show = show_writedata
+end
+
+
+type shared = Shared | NonShared
+type promised = Promise | NonPromise
+
+let show_shared = function
+  | Shared -> "Shared"
+  | NonShared -> "NonShared"
+end
+
+instance (Show (shared))
+  let show = show_shared
+end
+
+let show_promised = function
+  | Promise -> "Promise"
+  | NonPromise -> "NonPromise"
+end
+
+instance (Show (promised))
+  let show = show_promised
+end
+
+(* abstracts from the storage subsystem *)
+type pss_sem 'pss 'v = 
+  <| handle_write : 'pss -> writedata 'v -> shared -> list ('v * 'pss);
+     handle_fulfil : 'pss -> writedata 'v -> list 'v;
+     handle_read : 'pss -> read_request -> 'v -> shared -> list (write * 'v);
+     pss_view : 'pss -> 'v;
+     merge_pss_states : 'pss -> 'pss -> 'pss;
+     (* is_final_state : ss_params -> 'pss -> bool;
+      * stopped_promising : 'pss -> bool;
+      * transitions : ss_params -> 'pss ->  *)
+  |>
+
+
+type pt_trans 'ts 'ss 'v = 
+  (* thread sync transitions *)
+  | PT_Write of (thread_id * ioid) * (writedata 'v * promised * shared) * 'v * ('ts * 'ss)
+  | PT_Fulfil of (thread_id * ioid) * (writedata 'v) * ('v) * 'ts
+  | PT_Read of (thread_id * ioid) * (read_request * 'v) * (write * 'v) * 'ts (* second view is view of write read *)
+  (* thread only transitions *)
+  | PT_finish of (thread_id * ioid) * (address * instruction_ast) * 'ts
+  | PT_failed_store_excl of (thread_id * ioid) * 'ts
+  | PT_exception of (thread_id * ioid) * exception_type * 'ts
+
+
+
+let show_pt_trans = function
+  | PT_Write ids (wd,pr,sh) t _ ->
+     "PT_Write " ^ show ids ^ " (, " ^ show wd ^ ", " ^ show pr ^ ", " ^ show sh ^" ) " ^ show t
+  | PT_Fulfil ids req t _ ->
+     "PT_Fulfil " ^ show ids ^ " " ^ show req ^ " " ^ show t
+  | PT_Read ids req repl _ ->
+     "PT_Read " ^ show ids ^ " " ^ show req ^ " " ^ show repl
+  | PT_finish ids _ _ ->
+     "PT_finish " ^ show ids
+  | PT_failed_store_excl ids _ ->
+     "PT_failed_store_excl " ^ show ids
+  | PT_exception ids e _ ->
+     "PT_failed_store_excl " ^ show ids ^ " " ^ show e
+end
+
+instance forall 'v 'ts 'ss. Show 'v => (Show (pt_trans 'ts 'ss 'v))
+  let show = show_pt_trans
+end
+
+
+type pt_follow_label 'v = pt_trans unit unit 'v
+type pt_follow_trace 'v = list (pt_follow_label 'v)
+
+let pt_follow_label_of_pt_trans (t : pt_trans 'ts 'ss 'v) : pt_trans unit unit 'v =
+  match t with
+  | PT_Write ids req repl _ -> PT_Write ids req repl ((),())
+  | PT_Fulfil ids req repl _ -> PT_Fulfil ids req repl ()
+  | PT_Read ids req repl _ -> PT_Read ids req repl ()
+  | PT_finish ids req _ -> PT_finish ids req ()
+  | PT_failed_store_excl ids _ -> PT_failed_store_excl ids ()
+  | PT_exception ids descr _ts -> PT_exception ids descr ()
+  end
+
+let pt_trans_matches_pt_follow_label follow_label t =
+  follow_label = pt_follow_label_of_pt_trans t
+
+
+
+(* thread transitions which involve interaction with the storage
+   subsystem *)
+type p_trans 'ts 'ss 'v =
+  | PT of pt_trans 'ts 'ss 'v
+  (* system transition *)
+  | PSys_thread_start of
+      (thread_id * ioid) * 
+        (register_value * maybe register_value) * (* (opd address, opd toc), only PPCGEN has toc *)
+        (maybe thread_id) * (* the thread_id of the new thread *)
+        'ts
+  | PSys_stop_promising
+  | PSys_finish of (map thread_id 'ts) * 'ss * pt_follow_trace 'v
+
+
+let ids_of_pt_trans = function
+  | PT_Write ids _ _ _         -> ids
+  | PT_Fulfil ids _ _ _        -> ids
+  | PT_Read ids _ _ _          -> ids
+  | PT_finish ids _ _          -> ids
+  | PT_failed_store_excl ids _ -> ids
+  | PT_exception ids _ _       -> ids
+end
+
+let tid_of_pt_trans t = fst (ids_of_pt_trans t)
+let ioid_of_pt_trans t = snd (ids_of_pt_trans t)
+
+let tid_of_p_trans = function
+  | PT t -> Just (tid_of_pt_trans t)
+  | _ -> Nothing
+end
+let ioid_of_p_trans = function
+  | PT t -> Just (ioid_of_pt_trans t)
+  | _ -> Nothing
+end
+
+
+let p_is_storage_transition (_ : p_trans 'ts 'ss 'v) = false
+let p_is_thread_transition = function
+  | PT _ -> true
+  | _ -> false
+end
+
+let write_information_of_pt_write_trans = function
+  | PT_Write _ winfo _ _ -> return winfo
+  | _ -> mzero
+end
+
+let write_information_of_p_write_trans = function
+  | PT t -> write_information_of_pt_write_trans t
+  | _ -> mzero
+end
+
+let wd_of_pt_write_trans t =
+  write_information_of_pt_write_trans t >>= fun (wd,_,_) ->
+  return wd
+let wd_of_p_write_trans t =
+  write_information_of_p_write_trans t >>= fun (wd,_,_) ->
+  return wd
+
+let wd_of_shared_p_write_trans t =
+  write_information_of_p_write_trans t >>= fun (wd,_,sh) ->
+  guard (sh = Shared) >>
+  return wd
+
+let wd_of_shared_pt_write_trans t =
+  write_information_of_pt_write_trans t >>= fun (wd,_,sh) ->
+  guard (sh = Shared) >>
+  return wd
+
+let unlockA_of_wd wd = option_guard wd.wd_rexinfo
+
+let is_shared_pt_write_trans (t : pt_trans 'ts 'ss 'v) : bool =
+  not (List.null (wd_of_shared_pt_write_trans t))
+let is_shared_p_write_trans (t : p_trans 'ts 'ss 'v) : bool =
+  not (List.null (wd_of_shared_p_write_trans t))
+
+let is_pt_write_trans (t : pt_trans 'ts 'ss 'v) : bool =
+  not (List.null (wd_of_pt_write_trans t))
+let is_p_write_trans (t : p_trans 'ts 'ss 'v) : bool =
+  not (List.null (wd_of_p_write_trans t))
+
+let is_stop_promising_p_trans : p_trans 'ts 'ss 'v -> bool = function
+  | PSys_stop_promising -> true
+  | _ -> false
+end
+
+
+let p_trans_fetch_address : p_trans 'ts 'ss 'v -> maybe address = function
+  | _ -> Nothing
+  end
+
+let read_footprint_of_pt_trans (t: pt_trans 'ts 'ss 'v) : maybe footprint =
+  match t with
+  | PT_Read _ (rr,_) _ _ -> Just rr.r_addr
+  | _ -> Nothing
+  end
+let read_footprint_of_p_trans (t: p_trans 'ts 'ss 'v) : maybe footprint =
+  match t with
+  | PT t -> read_footprint_of_pt_trans t
+  | _ -> Nothing
+  end
+
+let ptrans_reads_footprint
+    (footprint:  footprint)
+    (transition: p_trans 'ts 'ss 't)
+    : bool
+  =
+  read_footprint_of_p_trans transition
+  $> Maybe.map (non_empty_intersection footprint)
+  $> fromMaybe false
+
+
+
+(* NOTE: write_footprints_of_trans is (also) used to determine if the
+transition can be taken eagerly when eager_local_mem is enabled *)
+let write_footprints_of_pt_trans (t: pt_trans 'ts 'ss 'v) : list footprint =
+  List.map (fun wd -> wd.wd_w.w_addr) (wd_of_pt_write_trans t)
+let write_footprints_of_p_trans (t: p_trans 'ts 'ss 'v) : list footprint =
+  List.map (fun wd -> wd.wd_w.w_addr) (wd_of_p_write_trans t)
+
+let ptrans_writes_footprint
+    (footprint:  footprint)
+    (transition: p_trans 'ts 'ss 'v)
+    : bool
+  =
+  exists (fp MEM (write_footprints_of_p_trans transition)).
+      non_empty_intersection footprint fp
+
+
+
+
+  
+
+
+let tconf_after_pt_trans (pts,pss) : pt_trans 'pts 'pss 'v -> ('pts * 'pss) = 
+  function
+  (* thread sync transitions *)
+  | PT_Write _ _ _ (pts,pss)    -> (pts,pss)
+  | PT_Fulfil _ _ _ pts         -> (pts,pss)
+  | PT_Read _ _ _ pts           -> (pts,pss)
+  (* thread only transitions *)
+  | PT_finish _ _ pts           -> (pts,pss)
+  | PT_failed_store_excl _ pts  -> (pts,pss)
+  | PT_exception _ _ pts        -> (pts,pss)
+end
+
