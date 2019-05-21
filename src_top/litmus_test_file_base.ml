@@ -384,9 +384,136 @@ let read_channel
 
   ((info, test), isa_info, maybe_x86_syntax)
 
-let actually_SAIL_encode : Test.instruction_ast
-                         -> memory_value
-    = failwith "encode"
+let actually_SAIL_encode
+        (instr : Test.instruction_ast)
+        (endianness: Sail_impl_base.end_flag)
+        : memory_value
+    = let v =
+        (match instr with
+          | AArch64_instr inst ->
+               (match inst with
+                (* MOV Xn,#IMM *)
+               | MoveWide (d, datasize, imm, pos, MoveWideOp_Z) ->
+                    let reg = Nat_big_num.to_int d in
+                    let imm16 = Nat_big_num.to_int (Sail_values.unsigned_big imm) in
+                    (3531603968 lor reg) lor (imm16 lsl 5)
+                (* NOP *)
+               | Hint (SystemHintOp_NOP) ->
+                     3573751839
+               (* (LDR|STR) (X|W)t, [Xn,Xm] *)
+               | LoadRegister
+                  (n,t2,m2,_,memOp,_,_,_,_,_,regsize,datasize)
+               ->
+                    let regt = Nat_big_num.to_int t2 in
+                    let regn = Nat_big_num.to_int n in
+                    let regm = Nat_big_num.to_int m2 in
+                    let sf = 1 in
+                    let load = (match memOp with
+                        | MemOp_STORE -> 0
+                        | MemOp_LOAD -> 1
+                        | _ -> failwith "instruction encoder: unsupported memOp") in
+                    let sz = (if (Nat_big_num.to_int regsize) = 64 then 3 else 2) in
+                    (1544562688
+                        lor regt
+                        lor (regn lsl 5)
+                        lor (sf lsl 14)
+                        lor (load lsl 22)
+                        lor (regm lsl 16)
+                        lor (sz lsl 30))
+               | LoadImmediate
+                  (n,t2,_,memOp,_,_,_,_,regsize,datasize)
+               ->
+                    let regt = Nat_big_num.to_int t2 in
+                    let regn = Nat_big_num.to_int n in
+                    let sf = 1 in
+                    let load = (match memOp with
+                        | MemOp_STORE -> 0
+                        | MemOp_LOAD -> 1
+                        | _ -> failwith "instruction encoder: unsupported memOp") in
+                    let sz = (if (Nat_big_num.to_int regsize) = 64 then 3 else 2) in
+                    (3087008768
+                        lor regt
+                        lor (regn lsl 5)
+                        lor (sf lsl 14)
+                        lor (load lsl 22)
+                        lor (sz lsl 30))
+               | CompareAndBranch
+                  (t2, datasize, iszero, offset)
+               ->
+                    let regt = Nat_big_num.to_int t2 in
+                    let sf = (if (Nat_big_num.to_int datasize) = 64 then 1 else 0) in
+                    let imm = Nat_big_num.to_int (Sail_values.unsigned_big offset) in
+                    let zero = (match iszero with
+                        | B0 -> 0
+                        | B1 -> 1
+                        | _ -> failwith "unknown zero bit") in
+                    (872415232
+                        lor regt
+                        lor (imm lsl 5)
+                        lor (zero lsl 24)
+                        lor (sf lsl 30))
+               | BranchImmediate
+                  (_, offset)
+               ->
+                    let imm = Nat_big_num.to_int (Sail_values.unsigned_big offset) in
+                    (335544320
+                        lor imm)
+               | Barrier3
+                  (barrierOp,domain,types)
+               ->
+                    let op = (match barrierOp with
+                        | MemBarrierOp_DSB -> 0
+                        | MemBarrierOp_DMB -> 1
+                        | MemBarrierOp_ISB -> 2) in
+                    let dom = (match domain with
+                        | MBReqDomain_Nonshareable -> 0
+                        | MBReqDomain_InnerShareable -> 1
+                        | MBReqDomain_OuterShareable -> 2
+                        | MBReqDomain_FullSystem -> 3) in
+                    let ty = (match types with
+                        | MBReqTypes_Reads -> 1
+                        | MBReqTypes_Writes -> 2
+                        | MBReqTypes_All -> 3) in
+                    (3573756063
+                        lor (op lsl 5)
+                        lor (ty lsl 8)
+                        lor (dom lsl 10))
+               | DataCache
+                  (t,dcOp)
+               ->
+                    let regt = Nat_big_num.to_int t in
+                    let (op1,crm,op2) = (match dcOp with
+                        | CVAU -> (3,11,1)
+                        | _ -> failwith "unsupported DC operation") in
+                    (3574099968
+                        lor regt
+                        lor (op1 lsl 16)
+                        lor (op2 lsl 5)
+                        lor (crm lsl 8))
+               | InstructionCache
+                  (t,icOp)
+               ->
+                    let regt = Nat_big_num.to_int t in
+                    let (op1,crm,op2) = (match icOp with
+                        | IVAU -> (3,5,1)
+                        | _ -> failwith "unsupported IC operation") in
+                    (3574099968
+                        lor regt
+                        lor (op1 lsl 16)
+                        lor (op2 lsl 5)
+                        lor (crm lsl 8))
+               | ImplementationDefinedStopFetching -> 0
+               | ImplementationDefinedThreadStart  -> 0
+               | inst ->
+                    let i' = (AArch64HGenTransSail.shallow_ast_to_herdtools_ast (AArch64_instr inst)) in
+                    let p = AArch64HGenBase.pp_instruction (PPMode.Ascii) i' in
+                    failwith ("instruction encoder: instruction not supported: " ^ p))
+          | _ -> failwith "instruction encoder: only ARM supported")
+      in
+          Sail_impl_base.memory_value_of_integer
+            endianness
+            4
+            (Nat_big_num.of_int v)
 
 
 let initial_state_record_base
@@ -472,7 +599,7 @@ let initial_state_record_base
           let footprint = (addr, 4) in  (* TODO: per-arch ... *)
           let (new_ioid, ist) = FreshIds.gen_fresh_id ist in
           let ioid_ist = FreshIds.initial_id_state new_ioid in
-          let value = actually_SAIL_encode instr in
+          let value = actually_SAIL_encode instr endianness in
           let (new_writes, ioid_ist) =
             Events.make_write_events_big_split
               ioid_ist init_thread new_ioid footprint value Sail_impl_base.Write_plain in
