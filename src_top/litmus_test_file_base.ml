@@ -502,6 +502,26 @@ let actually_SAIL_encode
                         lor (op1 lsl 16)
                         lor (op2 lsl 5)
                         lor (crm lsl 8))
+               | Address0
+                  (d,op,imm)
+               ->
+                    let regd = Nat_big_num.to_int d in
+                    let vecimmlo =
+                        Sail_values.slice_raw
+                            imm
+                            (Nat_big_num.of_int 0)
+                            (Nat_big_num.of_int 1) in
+                    let vecimmhi =
+                        Sail_values.slice_raw
+                            imm
+                            (Nat_big_num.of_int 2)
+                            (Nat_big_num.of_int 21) in
+                    let immlo = Nat_big_num.to_int (Sail_values.unsigned_big vecimmlo) in
+                    let immhi = Nat_big_num.to_int (Sail_values.unsigned_big vecimmhi) in
+                    (268435456
+                        lor regd
+                        lor (immhi lsl 5)
+                        lor (immlo lsl 29))
                | ImplementationDefinedStopFetching -> 0
                | ImplementationDefinedThreadStart  -> 0
                | inst ->
