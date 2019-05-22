@@ -731,6 +731,6 @@ let initial_state_record_base
    init_reg_data,
    init_reg_value,
    initial_fetch_address,
-   init_write_events)
+   initial_writes)
   
 
