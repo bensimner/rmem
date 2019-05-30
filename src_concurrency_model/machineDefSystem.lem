@@ -46,7 +46,6 @@ open import MachineDefThreadSubsystem
 open import MachineDefInstructionPredicates
 
 
-
 (** initial system state ********************************************)
 
 (* the initial writes should be a list of one write for each address that the program will use *)

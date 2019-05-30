@@ -28,6 +28,8 @@
 #
 "src_top"                       : include
 "src_top/herd_based"            : include
+"src_top/herd_based/lib"        : include
+"src_top/herd_based/litmus"     : include
 <build_isa_models/*>            : include
 "build_concurrency_model"       : include
 "build_sail_interp"             : include
@@ -54,6 +56,9 @@
 
 <src_top/main.{d.byte,byte,native,p.native}> : package(unix), package(str), package(lem), package(linksem), package(base64), package(sail)
 # the Makefile also adds package(lambda-term) when building text (and not headless)
+
+<src_top/axiomatic.{d.byte,byte,native,p.native}> : package(unix), package(str), package(lem), package(linksem), package(base64), package(sail)
+
 
 <src_top/webppc.{d.byte,byte}> : package(unix), package(js_of_ocaml), package(lem), package(linksem), package(base64), package(sail)
 

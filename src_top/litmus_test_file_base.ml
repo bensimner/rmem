@@ -44,9 +44,11 @@ module Arch_config =
 struct
   let memory = Memory.Direct
   let cautious = true
+  let hexa = true
   let asmcomment = None
 end
 
+module SymbConstant = SymbConstant.Make(ParsedConstant.StringScalar)
 module PPC = PPCGenArch.Make(Arch_config)(SymbConstant)
 
 module PPCLexParse = struct
@@ -134,7 +136,7 @@ type lex_input = | LexInChannel of in_channel
 
 
 module Make_litmus_parser
-    (Arch: Arch.S)
+    (Arch: Arch_litmus.S with type V.Scalar.t = string)
     (TransSail: Isa_defs.TransSail with type instruction = Arch.instruction)
     (LexParse: GenParser.LexParse with type instruction = Arch.parsedPseudo)
     (GenParserConfig : GenParser.Config)
@@ -318,6 +320,7 @@ let read_channel
     let debuglexer = false
     let check_kind _ = None
     let check_cond = overwrite_check_cond
+    let verbose = 0
   end in
 
 
@@ -535,7 +538,6 @@ let actually_SAIL_encode
             4
             (Nat_big_num.of_int v)
 
-
 let initial_state_record_base
     (endianness: Sail_impl_base.end_flag)
     (aarch64gen: bool)
@@ -745,6 +747,7 @@ let initial_state_record_base
   in
 
   (thread_isa_info',
+   prog_map,
    prog,
    return_addresses,
    tids,
@@ -752,5 +755,3 @@ let initial_state_record_base
    init_reg_value,
    initial_fetch_address,
    initial_writes)
-  
-
