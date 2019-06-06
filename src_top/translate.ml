@@ -104,6 +104,7 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
       let init_state = t_alloc.MiscParser.init in
       let filter = t_alloc.MiscParser.filter in
       let condition = t_alloc.MiscParser.condition in
+      let parsed_prog = t_alloc.MiscParser.prog in
       let map_constant f = (function
        | Constant.Concrete s -> Constant.Concrete (f s)
        | Constant.Symbolic (a,b) -> Constant.Symbolic (a, b)
@@ -186,13 +187,24 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
           fst (LocationMap.find c addr_map)
         with Not_found -> failwith ("No such address mapped " ^ c) in
 
+      let proc_label_map prog =
+          let optm =
+              List.mapi (fun i -> function
+                | A.Label (lbl, _) -> Some (lbl, i*instr_size)
+                | _ -> None) prog in
+            Misc.option_map Misc.identity optm in
+      let prog_label_maps = List.map (fun (i, m) -> (i, proc_label_map m)) parsed_prog in
       let translate_register_value t v =
         let i =
           match v with
           | Constant.Symbolic (c,0) -> Nat_big_num.of_int (lookup_constant c)
           | Constant.Symbolic (_,_) -> failwith "Offset not defined."
           | Constant.Concrete i -> i
-          | Constant.Label _ -> failwith "TODO: handle Constant.Label in translate_register_value"
+          | Constant.Label (proc, lbl) ->
+                (* TODO: BS: This seems like it's in the wrong place ... *)
+                let n = (List.assoc lbl (List.assoc proc prog_label_maps)) in
+                let n' = Globals.aval_of_inst_index proc n in
+                Nat_big_num.of_int n'
         in
         let sz, _ = calc_size_alignment t in
         (* currently we only support 64bit general-purpose-registers *)
@@ -302,7 +314,6 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
             | _ -> assert false)
           i_mem
       in
-      let parsed_prog = t_alloc.MiscParser.prog in
       let rec compact l =
       (* remove A.Nop' sand place 'A.Instruction Trans.end_ins' as the last instruction *)
         match l with

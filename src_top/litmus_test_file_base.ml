@@ -28,10 +28,6 @@
 
 open Test
 
-(* given the thread index, tid, and the instruction offset in the
-thread, n, return the memory address of the instruction *)
-let aval_of_inst_index tid n = Nat_big_num.of_int (0x50000 + 0x1000 * tid + n)
-
 (* duplication of the type in Globals, so this module can remain
    independent of globals.ml*)
 type x86_syntax =
@@ -202,7 +198,7 @@ let test_info (aarch64gen: bool) (test: Test.test) (name: string) : Test.info =
         (fun (tid, _, labelmap) ->
           List.map
             (fun (label, n) ->
-              let addr = Sail_impl_base.address_of_integer (aval_of_inst_index tid n) in
+              let addr = Sail_impl_base.address_of_integer (Globals.aval_of_inst_index_num tid n) in
               ((addr, 4), label))
             labelmap)
         test.prog)
@@ -453,7 +449,7 @@ let initial_state_record_base
       List.concat
         (List.map
             (fun (tid, instructions, _) ->
-                List.mapi (fun i inst -> (aval_of_inst_index tid (i * 4), inst)) instructions)
+                List.mapi (fun i inst -> (Globals.aval_of_inst_index_num tid (i * 4), inst)) instructions)
             test.prog)
     in
 
@@ -475,13 +471,13 @@ let initial_state_record_base
 
   (* provide the initial fetch address for each thread *)
   let initial_fetch_address tid : Sail_impl_base.address option =
-    Some (Sail_impl_base.address_of_integer (aval_of_inst_index tid 0))
+    Some (Sail_impl_base.address_of_integer (Globals.aval_of_inst_index_num tid 0))
   in
 
   let return_addresses =
     List.map
       (fun (tid, instructions, _) ->
-          let aval = aval_of_inst_index tid (((List.length instructions) - 1) * 4) in
+          let aval = Globals.aval_of_inst_index_num tid (((List.length instructions) - 1) * 4) in
           (tid, Sail_impl_base.address_of_integer aval))
       test.prog
   in
