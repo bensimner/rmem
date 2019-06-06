@@ -161,8 +161,6 @@ let read_channel_and_update_globals
   (info,test)
 
 
-
-
 let read_data (name: string) (data: data) (isa_callback: (InstructionSemantics.instruction_semantics_mode -> unit) option) : Test.info * test =
   read_channel_and_update_globals
     name

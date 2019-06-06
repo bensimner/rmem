@@ -36,7 +36,6 @@ let rec cmps : (unit -> int) list -> int = function
       end
   | [] -> 0
 
-
 (* ***************************************************************** *)
 (* miscellaneous auxiliary functions                                 *)
 (* ***************************************************************** *)
@@ -368,6 +367,23 @@ let XX_update params value = {params with t = {params.t with XX = value}}
 let XX_value params = params.t.XX
 *)
 
+open MachineDefTypes
+let fetch_atomics_assoc =
+  let r =
+      (* TODO: eventually read these from user or sail registers *)
+      { flat_need_ic = true;
+        flat_need_dc = true;
+        flat_icache_type = Icache_Many;
+      } in
+  [((Fetch_Atomic, Fetch_Sequential, false), "fetch-atomic");
+   ((Fetch_Relaxed r, Fetch_Unrestricted, true), "fetch-relaxed")]
+let fetch_atomics_update params (mft, tfo, iffss)  =
+    {params with
+        ss = {params.ss with ss_fetch_type=mft};
+        t  = {params.t  with thread_fetch_from_ss=iffss; thread_fetch_order=tfo};
+    }
+let fetch_atomics_value params = (params.ss.ss_fetch_type, params.t.thread_fetch_order, params.t.thread_fetch_from_ss)
+
 let model_assoc =
   [((PLDI11_storage_model,  PLDI11_thread_model),           "pldi11");
    ((Flowing_storage_model, POP_thread_model Standard_POP), "flowing");
@@ -498,6 +514,7 @@ let parsers =
     gen_parser pw_assoc pw_update;
     gen_parser p_promise_first_assoc p_promise_first_update;
 (*    gen_parser bc_assoc bc_update;*)
+    gen_parser fetch_atomics_assoc fetch_atomics_update;
   ]
 
 let model_strings =
@@ -516,8 +533,9 @@ let model_strings =
 (*  (assoc_image coherence_commit_assoc) @*)
   (assoc_image new_coh_assoc) @
   (assoc_image pw_assoc) @
-  (assoc_image p_promise_first_assoc)
+  (assoc_image p_promise_first_assoc) @
 (*  (assoc_image bc_assoc) @*)
+  (assoc_image fetch_atomics_assoc)
 
 
 let current_model params =
@@ -538,6 +556,7 @@ let current_model params =
     (List.assoc (pw_value params) pw_assoc);
     (List.assoc (p_promise_first_value params) p_promise_first_assoc);
 (*    (List.assoc (bc_value params) bc_assoc);*)
+    (List.assoc (fetch_atomics_value params) fetch_atomics_assoc);
   ]
 
 
