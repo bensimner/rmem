@@ -456,7 +456,7 @@ let actually_SAIL_encode
                ->
                     let imm = Nat_big_num.to_int (Sail_values.unsigned_big offset) in
                     (335544320
-                        lor imm)
+                        lor (imm lsr 2))
                | Barrier3
                   (barrierOp,domain,types)
                ->
