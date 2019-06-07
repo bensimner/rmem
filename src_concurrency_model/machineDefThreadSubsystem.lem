@@ -4136,7 +4136,14 @@ let enumerate_init_fetch_transitions_of_instruction params
 
   guard (
     match params.thread_fetch_limit with
-    | Just lim -> lim > List.length iic.active_prefix
+    | Just lim ->
+      let is_not_decoded inst =
+            (match inst.micro_op_state with
+            | MOS_fetch _ -> true
+            | _ -> false
+            end) in
+      let decode_depth = List.length (List.filter is_not_decoded iic.active_prefix) in
+        lim > decode_depth
     | Nothing -> true
     end) >>
 

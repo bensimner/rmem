@@ -202,6 +202,16 @@ let is_fetch_sequential params = match params.thread_fetch_order with
   | _ -> false
   end
 
+let is_fetch_relaxed params = match params.ss_fetch_type with
+  | Fetch_Relaxed _ -> true
+  | _ -> false
+  end
+
+let is_fetch_atomic params = match params.ss_fetch_type with
+  | Fetch_Atomic -> true
+  | _ -> false
+  end
+
 let is_pop_model params = match params.thread_model with
   | POP_thread_model _ -> true
   | _ -> false
@@ -352,7 +362,7 @@ let default_model_params =
         thread_fail_on_loop            = false;
         thread_isa_info                = IsaInfoPPCGen.ppcgen_ism;
         thread_loop_unroll_limit       = Nothing;
-        thread_fetch_limit             = Just 20;
+        thread_fetch_limit             = Nothing;
         thread_fetch_from_ss           = false;
         thread_fetch_order             = Fetch_Sequential;
 

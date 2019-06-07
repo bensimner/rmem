@@ -726,3 +726,8 @@ let set_shared_memory
   in
 
   {model with shared_memory = Some shared_memory}
+
+let set_thread_fetch_limit (n : int) (m : model_params) : model_params =
+    {m with
+        t  = {m.t  with thread_fetch_limit=Some n};
+    }
