@@ -465,9 +465,9 @@ let actually_SAIL_encode
                         | MemBarrierOp_DMB -> 1
                         | MemBarrierOp_ISB -> 2) in
                     let dom = (match domain with
-                        | MBReqDomain_Nonshareable -> 0
-                        | MBReqDomain_InnerShareable -> 1
-                        | MBReqDomain_OuterShareable -> 2
+                        | MBReqDomain_OuterShareable -> 0
+                        | MBReqDomain_Nonshareable -> 1
+                        | MBReqDomain_InnerShareable -> 2
                         | MBReqDomain_FullSystem -> 3) in
                     let ty = (match types with
                         | MBReqTypes_Reads -> 1
