@@ -287,6 +287,7 @@ let is_eager_relaxed_fetch_transition : (trans 'ts 'ss -> bool) = function
           match tl.tl_label with
           | T_init_fetch _          -> false
           | T_decode _ _            -> false
+          | _ -> false
           end
       | T_sync tsl _ ->
           match tsl with
