@@ -411,7 +411,7 @@ let actually_SAIL_encode
                         | MemOp_STORE -> 0
                         | MemOp_LOAD -> 1
                         | _ -> failwith "instruction encoder: unsupported memOp") in
-                    let sz = (if (Nat_big_num.to_int regsize) = 64 then 3 else 2) in
+                    let sz = (if (Nat_big_num.to_int regsize) = 64 then 1 else 0) in
                     (1544562688
                         lor regt
                         lor (regn lsl 5)
@@ -424,16 +424,14 @@ let actually_SAIL_encode
                ->
                     let regt = Nat_big_num.to_int t2 in
                     let regn = Nat_big_num.to_int n in
-                    let sf = 1 in
                     let load = (match memOp with
                         | MemOp_STORE -> 0
                         | MemOp_LOAD -> 1
                         | _ -> failwith "instruction encoder: unsupported memOp") in
                     let sz = (if (Nat_big_num.to_int regsize) = 64 then 3 else 2) in
-                    (3087008768
+                    (3087010816
                         lor regt
                         lor (regn lsl 5)
-                        lor (sf lsl 14)
                         lor (load lsl 22)
                         lor (sz lsl 30))
                | CompareAndBranch
@@ -454,9 +452,16 @@ let actually_SAIL_encode
                | BranchImmediate
                   (_, offset)
                ->
-                    let imm = Nat_big_num.to_int (Sail_values.unsigned_big offset) in
+                    let imm = Nat_big_num.to_int (Sail_values.signed_big offset) in
+                    let sign = if imm > 0 then 1 else -1 in
+                    let imm = sign * (abs imm lsr 2) in
+                    let imm =
+                        if imm < 0 then
+                            imm + (1 lsl 26)
+                        else
+                            imm in
                     (335544320
-                        lor (imm lsr 2))
+                        lor imm)
                | Barrier3
                   (barrierOp,domain,types)
                ->
