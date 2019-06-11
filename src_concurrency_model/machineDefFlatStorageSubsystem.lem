@@ -262,12 +262,6 @@ let flat_try_fetch_atomic _params state tl =
   let tl' = <| tl with tl_suppl = Just (Fetched_Mem mrs fdo) |> in
   [(T_fetch tl', Nothing)]
 
-let write_overlaps_with_addr (fp : footprint) (w : write) =
-    overlapping_slices (w.w_addr,[complete_slice w.w_addr]) (fp,[complete_slice fp])
-
-let write_slices_overlaps_with_addr (fp : footprint) ((w,s) : write * slices) =
-    overlapping_slices (w.w_addr,s) (fp,[complete_slice fp])
-
 let write_is_to_addr (fp : footprint) (w : write) =
     match mrs_from_write fp w with
     | Nothing -> false

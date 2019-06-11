@@ -265,6 +265,28 @@ let is_eager_atomic_fetch_transition : (trans 'ts 'ss -> bool) = function
       end
   end
 
+let is_eager_relaxed_fetch_fetch_transition params : (trans 'ts 'ss -> bool) =
+  function
+  | Sys_trans _ _ -> false
+  | SS_trans _ -> false
+  | T_trans thread_trans ->
+      match thread_trans with
+      | T_sync tsl _ ->
+          match tsl with
+          | T_fetch tl ->
+              let fr = tl.tl_label in
+              let fr_fp = (fr.fr_addr, 4) in
+              let seen_loc =
+                Set.any (fun fp ->
+                  overlapping_slices (fp,[complete_slice fp]) (fr_fp, [complete_slice fr_fp])
+                ) params.t.thread_written_footprints in
+              not seen_loc
+          | _ -> false
+          end
+      | _ -> false
+      end
+  end
+
 let is_eager_relaxed_fetch_transition : (trans 'ts 'ss -> bool) = function
   | Sys_trans _ _ -> false
   | SS_trans ss_trans ->
@@ -301,7 +323,7 @@ let is_eager_relaxed_fetch_transition : (trans 'ts 'ss -> bool) = function
 
 let is_eager_fetch_transition params t =
     if is_fetch_relaxed params.ss then
-      is_eager_relaxed_fetch_transition t
+      is_eager_relaxed_fetch_transition t || is_eager_relaxed_fetch_fetch_transition params t
     else
       is_eager_atomic_fetch_transition t
 

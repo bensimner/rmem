@@ -727,6 +727,44 @@ let set_shared_memory
 
   {model with shared_memory = Some shared_memory}
 
+let set_memory_writes
+    (symbol_table:  ((Sail_impl_base.address * int) * string) list)
+    (fps: Shared_memory_parser_base.footprint list)
+    (model:         model_params)
+    : model_params
+  =
+  let labels_map =
+    let (fps, names) = List.split symbol_table in
+    List.combine names fps
+  in
+
+  let footprints =
+    List.map
+      (function
+        | Shared_memory_parser_base.Absolute (addr, size) ->
+            (Sail_impl_base.address_of_integer addr, size)
+        | Shared_memory_parser_base.Symbol (symb, None) ->
+            begin try List.assoc symb labels_map with
+            | Not_found -> raise (Misc.Fatal ("the symbol \"" ^ symb ^ "\" does not exist"))
+            end
+        | Shared_memory_parser_base.Symbol (symb, Some (offset, size)) ->
+            begin match List.assoc symb labels_map with
+            | (addr, _) ->
+                let addr =
+                  Sail_impl_base.integer_of_address addr
+                  |> Nat_big_num.add offset
+                  |> Sail_impl_base.address_of_integer
+                in
+                (addr, size)
+            | exception Not_found -> raise (Misc.Fatal ("the symbol \"" ^ symb ^ "\" does not exist"))
+            end
+      )
+      fps
+    |> Pset.from_list Sail_impl_base.footprintCompare
+  in
+
+  {model with t = {model.t with thread_written_footprints = footprints}}
+
 let set_thread_fetch_limit (n : int) (m : model_params) : model_params =
     {m with
         t  = {m.t  with thread_fetch_limit=Some n};

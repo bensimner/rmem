@@ -450,6 +450,15 @@ let show_options interact_state : unit =
   |> Screen.show_message ppmode;
 
   SO.Concat [
+    SO.strLine "Memory-writes";
+    SO.line @@ SO.encoded @@ begin
+      (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_written_footprints
+      |> Pp.pp_shared_memory interact_state.ppmode
+      end
+  ]
+  |> Screen.show_message ppmode;
+
+  SO.Concat [
     SO.strLine "Model options:";
     SO.strLine "  %s"
       (Model_aux.pp_model (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state));
@@ -1931,6 +1940,19 @@ let do_set key args interact_state =
                   };
               };
           }
+      | exception (Model_aux.SharedMemoryParsingError msg) ->
+          SO.strLine "bad shared memory: %s" msg
+          |> Screen.show_warning interact_state.ppmode;
+          raise (InvalidValue value)
+      end
+
+  | "memory-writes" | "Memory-writes" ->
+      let value = ensure_one_arg () in
+      begin match Model_aux.shared_memory_parse_from_string value with
+      | fps ->
+          change_model
+            (Model_aux.set_memory_writes interact_state.test_info.Test.symbol_table fps)
+            interact_state
       | exception (Model_aux.SharedMemoryParsingError msg) ->
           SO.strLine "bad shared memory: %s" msg
           |> Screen.show_warning interact_state.ppmode;

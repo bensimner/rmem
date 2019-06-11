@@ -670,8 +670,17 @@ let shared_memory_of_state
             exists (fp' IN (rfps' union wfps')).
               non_empty_intersection wfp fp'}
 
-
-
+let written_footprints_of_state
+    (state: system_state 'ts 'ss)
+    : set footprint
+  =
+  let tid_footprints =
+    Map.map
+      (ts_memory_footprints state.t_model)
+      state.thread_states
+    $> Map.toSet
+  in
+  {wfp  | forall ((tid, (_, wfps)) IN tid_footprints) (wfp IN wfps) | true}
 
 (** Make a candidate execution *)
 

@@ -120,6 +120,7 @@ type search_state =
     observed_exceptions:       (trace * int) ExceptionMap.t;
 
     observed_branch_targets: Params.branch_targets_map;
+    observed_memory_writes: Sail_impl_base.footprint Pset.set;
     observed_shared_memory:  Sail_impl_base.footprint Pset.set;
 
     (*** statistics ***)
@@ -314,9 +315,27 @@ let update_observed_branch_targets_and_shared_memory search_state search_node : 
     else search_state.observed_shared_memory
   in
 
+  let observed_memory_writes =
+    (* TODO: BS: add eager_mode.eager_fetch *)
+    if search_state.options.eager_mode.eager_memory_aux then
+      let (union, diff) =
+        Params.union_and_diff_shared_memory
+          (ConcModel.written_footprints_of_state search_node.system_state)
+          search_state.observed_memory_writes
+      in
+      if not (Pset.is_empty diff) && SO.is_verbosity_at_least SO.ThrottledInformation then
+        SO.strLine "%s found new memory write footprint(s): %s"
+          (sprint_time ())
+          (Pp.pp_shared_memory search_state.ppmode diff)
+        |> Screen.show_message search_state.ppmode;
+      union
+    else search_state.observed_memory_writes
+  in
+
   { search_state with
     observed_branch_targets = observed_branch_targets;
     observed_shared_memory  = observed_shared_memory;
+    observed_memory_writes  = observed_memory_writes;
   }
 
 
@@ -999,6 +1018,7 @@ let search_from_state
       observed_exceptions       = ExceptionMap.empty;
 
       observed_branch_targets = (ConcModel.model_params system_state).t.branch_targets;
+      observed_memory_writes = (ConcModel.model_params system_state).t.thread_written_footprints;
       observed_shared_memory  = options.eager_mode.em_shared_memory;
 
       (* statistics *)
@@ -1051,7 +1071,7 @@ let search_from_state
     else []
   in
 
-  let print_diffs search_state bt_union bt_diff sm_union sm_diff : unit =
+  let print_diffs search_state bt_union bt_diff sm_union sm_diff mw_union mw_diff : unit =
     SO.verbose SO.ThrottledInformation (fun () ->
       SO.Concat [
         SO.ifTrue (not (Pmap.is_empty bt_union)) @@
@@ -1077,6 +1097,20 @@ let search_from_state
                 (Pp.pp_shared_memory search_state.ppmode sm_diff);
           ]
         end;
+
+        (* TODO: BS: eager_mode.eager_fetch *)
+        begin if options.eager_mode.eager_memory_aux then
+          SO.ifTrue (Pset.is_empty mw_union) @@
+            SO.strLine "No write footprints were observed!"
+        else
+          SO.Concat [
+            SO.strLine "Write footprints that were observed:";
+            SO.strLine "%s" (Pp.pp_shared_memory search_state.ppmode mw_union);
+            SO.ifTrue (not (Pset.is_empty mw_diff)) @@
+              SO.strLine "(from which the following are new: %s)"
+                (Pp.pp_shared_memory search_state.ppmode mw_diff);
+          ]
+        end;
       ]
     ) |> Screen.show_message search_state.ppmode
   in
@@ -1098,6 +1132,12 @@ let search_from_state
             (*options.eager_mode.em_shared_memory*)
         in
 
+        let (mw_union, mw_diff) =
+          Params.union_and_diff_shared_memory
+            search_state'.observed_memory_writes
+            initial_search_state.observed_memory_writes
+        in
+
         if bt_diff = [] && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff) then
           (* search terminated after exploring all reachable states *)
           let () = init_search_state := Some initial_search_state in
@@ -1108,7 +1148,7 @@ let search_from_state
               (sprint_time ())
               n
             |> Screen.show_message ppmode;
-            print_diffs search_state' bt_union bt_diff sm_union sm_diff;
+            print_diffs search_state' bt_union bt_diff sm_union sm_diff mw_union mw_diff;
             if options.allow_partial then print_partial_results search_state';
           end;
 
@@ -1125,7 +1165,10 @@ let search_from_state
             let model_params = ConcModel.model_params system_state in
             let model_params' =
               { model_params with
-                t = {model_params.t with branch_targets = bt_union};
+                t = {model_params.t with
+                      branch_targets = bt_union;
+                      thread_written_footprints=mw_union;
+                    }
               }
             in
             ConcModel.set_model_params model_params' system_state
@@ -1135,6 +1178,7 @@ let search_from_state
             search_nodes            = [];
             observed_branch_targets = bt_union;
             observed_shared_memory  = sm_union;
+            observed_memory_writes  = mw_union;
             options                 = options';
           }
           |> add_search_node system_state'
@@ -1162,11 +1206,17 @@ let search_from_state
                 (!search_state).observed_shared_memory
             in
 
+            let (mw_union, mw_diff) =
+              Params.union_and_diff_shared_memory
+                search_state'.observed_memory_writes
+                (!search_state).observed_memory_writes
+            in
+
             if bt_diff = [] && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff) then
               search_state := {search_state' with search_nodes = initial_search_state.search_nodes}
             else begin
               if SO.is_verbosity_at_least SO.ThrottledInformation then
-                print_diffs search_state' bt_union bt_diff sm_union sm_diff;
+                print_diffs search_state' bt_union bt_diff sm_union sm_diff mw_union mw_diff;
 
               let options' =
                 { (!search_state).options with
@@ -1181,7 +1231,9 @@ let search_from_state
                 let model_params = ConcModel.model_params system_state in
                 let model_params' =
                   { model_params with
-                    t = {model_params.t with branch_targets = bt_union};
+                    t = {model_params.t with
+                            branch_targets = bt_union;
+                            thread_written_footprints = mw_union };
                   }
                 in
                 ConcModel.set_model_params model_params' system_state
@@ -1192,6 +1244,7 @@ let search_from_state
                   search_nodes            = [];
                   observed_branch_targets = bt_union;
                   observed_shared_memory  = sm_union;
+                  observed_memory_writes  = mw_union;
                   options                 = options';
                 }
                 |> add_search_node system_state'
