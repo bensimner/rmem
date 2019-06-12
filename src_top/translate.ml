@@ -188,11 +188,14 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
         with Not_found -> failwith ("No such address mapped " ^ c) in
 
       let proc_label_map prog =
-          let optm =
-              List.mapi (fun i -> function
-                | A.Label (lbl, _) -> Some (lbl, i*instr_size)
-                | _ -> None) prog in
-            Misc.option_map Misc.identity optm in
+          let rec optm i p =
+                match p with
+                | [] -> []
+                | A.Label (lbl, _) :: p' ->
+                      Some (lbl, i*instr_size) :: optm i p'
+                | _ :: p' -> optm (i+1) p'
+          in
+            Misc.option_map Misc.identity (optm 0 prog) in
       let prog_label_maps = List.map (fun (i, m) -> (i, proc_label_map m)) parsed_prog in
       let translate_register_value t v =
         let i =
