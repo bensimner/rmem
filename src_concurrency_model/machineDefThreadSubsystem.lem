@@ -2139,11 +2139,8 @@ let get_fetch_instruction_continuation params
     : (fetched -> thread_cont_res thread_state)
   =
   fun f ->
-    let fdo = fdo_from_fetched f in
-    let i = inst_context.iic_instance in
-    let prefix = (i :: inst_context.active_prefix ++ inst_context.old_prefix) in
-    let i' =
-        <| i with
+    let i =
+        <| inst_context.iic_instance with
             micro_op_state = MOS_fetch (Just f);
             instruction =
                 match f with
@@ -2154,7 +2151,7 @@ let get_fetch_instruction_continuation params
         |>
     in
         <|  state with
-            instruction_tree = apply_tree_context inst_context.context (i',inst_context.subtree);
+            instruction_tree = apply_tree_context inst_context.context (i,inst_context.subtree);
         |>
     $> make_old_instructions params
     $> make_thread_cont_res {} {}
@@ -4110,8 +4107,8 @@ let potential_next_addresses_of_instruction_relaxed
     | MOS_fetch _ ->
         let branch_targets = Map.findWithDefault state.thread Map.empty params.branch_targets in
         let addrs = Map.findWithDefault iic.iic_instance.program_loc Set.empty branch_targets in
-        let succ = {successor_fetch_address iic.iic_instance} in
-        succ union addrs
+        let succ = successor_fetch_address iic.iic_instance in
+        {succ} union addrs
     | _ ->
         potential_next_addresses_of_instruction params state iic
     end
@@ -4129,6 +4126,8 @@ let enumerate_init_fetch_transitions_of_instruction params
   end in
 
   let i = iic.iic_instance in
+  let prefix = (i :: iic.active_prefix ++ iic.old_prefix) in
+
   guard (is_restricted --> i.finished) >>
   guard (params.thread_model = TSO_thread_model --> i.finished) >>
 

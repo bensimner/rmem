@@ -298,7 +298,6 @@ let rec write_slices_permutations (v : list 'a) : list (list 'a) = match v with
   | (x::y::zs) ->
              map (fun y -> x::y) (write_slices_permutations (y::zs))
           ++ map (fun z -> y::z) (write_slices_permutations (x::zs))
-  | _ -> failwith "impossible write_slices_permutations"
   end
 
 let possible_fetches_from_write_slices (fp : footprint) : list (write * slices) -> list memory_read_source
