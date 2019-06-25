@@ -1724,7 +1724,7 @@ let pp_t_only_label ?(graph=false) m tl =
   | T_RISCV_atomic_end ->
       ("end atomic memory access of AMO", None)
 
-  | T_init_fetch addr ->
+  | T_init_fetch (addr, _) ->
       let info = (pp_address m (Some ioid) addr) in
       ("init fetch next instruction", Some info)
   | T_decode (addr, f) ->

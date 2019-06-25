@@ -239,7 +239,7 @@ let fuzzy_compare_transitions trans1 trans2 =
 
   let cmp_t_only_trans l1 l2 =
     match (l1, l2) with
-    | (T_init_fetch addr1, T_init_fetch addr2) ->
+    | (T_init_fetch (addr1,_), T_init_fetch (addr2,_)) ->
         Sail_impl_base.addressCompare addr1 addr2
     | (T_init_fetch _, _) -> 1
     | (_, T_init_fetch _) -> -1

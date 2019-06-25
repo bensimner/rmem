@@ -978,7 +978,7 @@ type thread_only_trans =
   | T_pseudoreg_write     of reg_name * register_value
   | T_footprint_outcome
   | T_actually_satisfy    of memory_value
-  | T_init_fetch of address
+  | T_init_fetch of address * bool  (* (addr, multiple_speculative_successors?) *)
   | T_decode of address * fetched
   (** not internal transitions: *)
   | T_register_read       of reg_name * register_read_sources * register_value
@@ -1011,7 +1011,7 @@ let show_thread_only_label = function
   | T_pseudoreg_write _ _ -> "T_pseudoreg_write"
   | T_footprint_outcome -> "T_footprint_outcome"
   | T_actually_satisfy _ -> "T_actually_satisfy"
-  | T_init_fetch _ -> "T_init_fetch"
+  | T_init_fetch _ _ -> "T_init_fetch"
   | T_decode _ _ -> "T_decode"
   (** not internal transitions: *)
   | T_register_read _ _ _ -> "T_register_read"

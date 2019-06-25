@@ -246,6 +246,14 @@ let opts = [
       run_options := {!run_options with RunOptions.eager_mode = eager_mode}),
     (Printf.sprintf "<bool> eagerly take thread-local memory access transitions (%b); exhaustive mode will run multiple times; at the end of each run we calculate the shared memory footprint and use it in the next run, to a fixed-point; the initial shared memory footprint can be set using the litmus file key \"Shared-memory=...\" and the -shared_memory option (empty otherwise)." !run_options.RunOptions.eager_mode.eager_local_mem));
 
+("-eager_fetch_unmodified",
+    Arg.Bool (fun b ->
+      let eager_mode =
+        {!run_options.RunOptions.eager_mode with
+            eager_fetch_unmodified = b}
+      in
+      run_options := {!run_options with RunOptions.eager_mode = eager_mode}),
+    (Printf.sprintf "<bool> eagerly take fetches of unmodified locations (%b); exhaustive mode will run multiple times; at the end of each run we calculate the set of memory locations that were fetched and written to and use it in the next run, to a fixed-point." !run_options.RunOptions.eager_mode.eager_fetch_unmodified));
 
 ("-shared_memory",
     Arg.String (fun filename ->

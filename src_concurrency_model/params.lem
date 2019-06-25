@@ -236,6 +236,7 @@ type eager_mode =
     eager_fp_recalc:           bool;
     eager_thread_start:        bool;
 
+    eager_fetch_unmodified:    bool;
     eager_local_mem:           bool;
     em_shared_memory:          set footprint;
   |>

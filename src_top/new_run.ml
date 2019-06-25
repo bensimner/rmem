@@ -316,8 +316,7 @@ let update_observed_branch_targets_and_shared_memory search_state search_node : 
   in
 
   let observed_memory_writes =
-    (* TODO: BS: add eager_mode.eager_fetch *)
-    if search_state.options.eager_mode.eager_memory_aux then
+    if search_state.options.eager_mode.eager_fetch_unmodified then
       let (union, diff) =
         Params.union_and_diff_shared_memory
           (ConcModel.written_footprints_of_state search_node.system_state)
@@ -1098,19 +1097,14 @@ let search_from_state
           ]
         end;
 
-        (* TODO: BS: eager_mode.eager_fetch *)
-        begin if options.eager_mode.eager_memory_aux then
-          SO.ifTrue (Pset.is_empty mw_union) @@
-            SO.strLine "No write footprints were observed!"
-        else
-          SO.Concat [
-            SO.strLine "Write footprints that were observed:";
-            SO.strLine "%s" (Pp.pp_shared_memory search_state.ppmode mw_union);
-            SO.ifTrue (not (Pset.is_empty mw_diff)) @@
-              SO.strLine "(from which the following are new: %s)"
-                (Pp.pp_shared_memory search_state.ppmode mw_diff);
-          ]
-        end;
+        (* TODO: BS: eager_mode.eager_fetch_unmodified *)
+        SO.Concat [
+          SO.strLine "Write footprints that were observed:";
+          SO.strLine "%s" (Pp.pp_shared_memory search_state.ppmode mw_union);
+          SO.ifTrue (not (Pset.is_empty mw_diff)) @@
+            SO.strLine "(from which the following are new: %s)"
+              (Pp.pp_shared_memory search_state.ppmode mw_diff);
+        ];
       ]
     ) |> Screen.show_message search_state.ppmode
   in
@@ -1138,7 +1132,9 @@ let search_from_state
             initial_search_state.observed_memory_writes
         in
 
-        if bt_diff = [] && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff) then
+        if bt_diff = []
+           && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff)
+           && (not options.eager_mode.eager_fetch_unmodified || Pset.is_empty mw_diff) then
           (* search terminated after exploring all reachable states *)
           let () = init_search_state := Some initial_search_state in
           result
@@ -1212,7 +1208,9 @@ let search_from_state
                 (!search_state).observed_memory_writes
             in
 
-            if bt_diff = [] && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff) then
+            if bt_diff = []
+               && (not options.eager_mode.eager_local_mem || Pset.is_empty sm_diff)
+               && (not options.eager_mode.eager_fetch_unmodified || Pset.is_empty mw_diff) then
               search_state := {search_state' with search_nodes = initial_search_state.search_nodes}
             else begin
               if SO.is_verbosity_at_least SO.ThrottledInformation then

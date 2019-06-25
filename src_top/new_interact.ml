@@ -264,8 +264,8 @@ let is_eager interact_state transition : bool =
   | node ->
       ConcModel.is_eager_trans
         node.system_state
-        (* eager_local_mem is sound only in a fixed-point *)
-        {interact_state.options.eager_mode with eager_local_mem = false}
+        (* eager_local_mem and eager_fetch_unmodified are sound only in a fixed-point *)
+        {interact_state.options.eager_mode with eager_local_mem = false; eager_fetch_unmodified = false}
         transition
 
 let find_eager_transition interact_state =
@@ -345,6 +345,8 @@ let show_options interact_state : unit =
       interact_state.options.eager_mode.eager_memory_aux;
     SO.strLine "  local_mem = %b"
       interact_state.options.eager_mode.eager_local_mem;
+    SO.strLine "  fetch unmodified = %b"
+      interact_state.options.eager_mode.eager_fetch_unmodified;
     SO.strLine "  finish = %b"
       interact_state.options.eager_mode.eager_finish;
     SO.strLine "  fp_recalc = %b"
@@ -1073,7 +1075,12 @@ let update_bt_and_sm search_state interact_state : interact_state =
           search_state.Runner.observed_branch_targets
           model.t.branch_targets
       in
-      {model with t = {model.t with branch_targets = bt_union}}
+      let (mw_union, _) =
+          Params.union_and_diff_shared_memory
+            search_state.Runner.observed_memory_writes
+            model.t.thread_written_footprints
+      in
+      {model with t = {model.t with branch_targets = bt_union; thread_written_footprints = mw_union}}
   )
 
 let run_interactive_search mode interact_state breakpoints bounds targets filters handle_search_outcome : interact_state =
@@ -1757,6 +1764,7 @@ let do_set key args interact_state =
         | "fp_recalc"           -> eager_fp_recalc_lens
         | "thread_start"        -> eager_thread_start_lens
         | "local_mem"           -> eager_local_mem_lens
+        | "fetch_unmodified"    -> eager_fetch_unmodified_lens
         | _                     -> raise InvalidKey
       in
       let value = ensure_one_arg () in
@@ -2408,6 +2416,15 @@ let print_observations interact_state search_state =
           (Pp.pp_shared_memory interact_state.ppmode shared_memory)
   in
 
+  (* This is the memory-writes as it was approximated before the search *)
+  let memory_writes_output =
+    let memory_writes = (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_written_footprints in
+    (* SO.ifTrue (not (Pset.is_empty memory_writes)) @@ *)
+      SO.verbose SO.Normal @@ fun () ->
+        SO.strLine "Memory-writes=%s"
+          (Pp.pp_shared_memory interact_state.ppmode memory_writes)
+  in
+
   let states_output = print_observed_finals interact_state search_state.Runner.observed_filterred_finals in
   let deadlock_states_output = print_observed_deadlocks interact_state search_state.Runner.observed_deadlocks in
   let exceptions_output = print_observed_exceptions interact_state search_state.Runner.observed_exceptions in
@@ -2415,6 +2432,7 @@ let print_observations interact_state search_state =
   SO.Concat
     [ branch_targets_output;
       shared_memory_output;
+      memory_writes_output;
       states_output;
       deadlock_states_output;
       exceptions_output;

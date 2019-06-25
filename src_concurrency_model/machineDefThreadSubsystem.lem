@@ -4166,18 +4166,23 @@ let enumerate_init_fetch_transitions_of_instruction params
       | Fetch_Unrestricted -> potential_next_addresses_of_instruction_relaxed params state iic
       end
   in
-  let fetch_kind =
-    if not i.finished
-        && exists (nia IN iic.iic_instance.nias). nia = NIA_indirect_address
-    then FK_unfixed
-    else if Set.size all_fetch_addrs > 1 then FK_multiple_fixed
-    else FK_normal
-  in
+  let multiple = Set.size all_fetch_addrs > 1 in
 
   (* remove addresses we have already fetched from, and remove the return address *)
   Set_extra.toList all_fetch_addrs >>= fun addr -> (* for each addr .. *)
   guard (addr NIN already_fetched_addrs) >>
   guard (addr <> state.return_address) >>
+
+  guard (
+    match (params.thread_loop_unroll_limit, prefix) with
+    | (Nothing, _) -> true
+    | (_, [])      -> true
+    | (Just limit, iprev :: _) ->
+        not (addr <= iprev.program_loc
+             && (exists (iprev MEM prefix). iprev.program_loc = addr)
+             && (_count_pairs prefix iprev.program_loc addr 0) + 1 >= limit)
+    end) >>
+
 
   let state' addr = fun () ->
     let (id_state', is') = init_fetch_instruction params i_sem state [] addr in
@@ -4189,7 +4194,7 @@ let enumerate_init_fetch_transitions_of_instruction params
     |>
     $> make_thread_cont_res {} {}
   in
-  [T_only (make_label state iic (T_init_fetch addr) (state' addr))]
+  [T_only (make_label state iic (T_init_fetch addr multiple) (state' addr))]
 
 
 let initial_fetch_transition_of_thread
@@ -4222,7 +4227,7 @@ let initial_fetch_transition_of_thread
   in
 
   let tl =
-    <|  tl_label = T_init_fetch addr;
+    <|  tl_label = T_init_fetch addr false;
         tl_suppl = Nothing;
         tl_cont  =
           <|  tc_tid  = state.thread;
