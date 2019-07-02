@@ -387,7 +387,14 @@ let actually_SAIL_encode
         (instr : Test.instruction_ast)
         (endianness: Sail_impl_base.end_flag)
         : memory_value
-    = let v =
+    = let unsigned_shifted_from_offset sz imm =
+        let sign = if imm > 0 then 1 else -1 in
+        let imm = sign * (abs imm lsr 2) in
+        if imm < 0 then
+            imm + (1 lsl sz)
+        else
+            imm in
+        let v =
         (match instr with
           | AArch64_instr inst ->
                (match inst with
@@ -402,20 +409,21 @@ let actually_SAIL_encode
                (* (LDR|STR) (X|W)t, [Xn,Xm] *)
                | LoadRegister
                   (n,t2,m2,_,memOp,_,_,_,_,_,regsize,datasize)
+                  (* (n, t, m, acctype, memop, signed, wback, postindex, extend_type, shift, regsize, datasize) -> *)
                ->
                     let regt = Nat_big_num.to_int t2 in
                     let regn = Nat_big_num.to_int n in
                     let regm = Nat_big_num.to_int m2 in
-                    let sf = 1 in
+                    let sf = 3 in
                     let load = (match memOp with
                         | MemOp_STORE -> 0
                         | MemOp_LOAD -> 1
                         | _ -> failwith "instruction encoder: unsupported memOp") in
                     let sz = (if (Nat_big_num.to_int regsize) = 64 then 1 else 0) in
-                    (1544562688
+                    (3089106944
                         lor regt
                         lor (regn lsl 5)
-                        lor (sf lsl 14)
+                        lor (sf lsl 13)
                         lor (load lsl 22)
                         lor (regm lsl 16)
                         lor (sz lsl 30))
@@ -439,29 +447,119 @@ let actually_SAIL_encode
                ->
                     let regt = Nat_big_num.to_int t2 in
                     let sf = (if (Nat_big_num.to_int datasize) = 64 then 1 else 0) in
-                    let imm = Nat_big_num.to_int (Sail_values.unsigned_big offset) in
+                    let imm = Nat_big_num.to_int (Sail_values.signed_big offset) in
+                    let imm = unsigned_shifted_from_offset 19 imm in
                     let zero = (match iszero with
-                        | B0 -> 0
-                        | B1 -> 1
+                        | B0 -> 1
+                        | B1 -> 0
                         | _ -> failwith "unknown zero bit") in
                     (872415232
                         lor regt
                         lor (imm lsl 5)
                         lor (zero lsl 24)
-                        lor (sf lsl 30))
+                        lor (sf lsl 31))
                | BranchImmediate
-                  (_, offset)
+                  (branch_type, offset)
                ->
+                    let op =
+                        match branch_type with
+                        | BranchType_JMP  -> 0
+                        | BranchType_CALL -> 1
+                        | _ -> failwith "Unknown branch type when assembling BranchImmediate"
+                    in
                     let imm = Nat_big_num.to_int (Sail_values.signed_big offset) in
-                    let sign = if imm > 0 then 1 else -1 in
-                    let imm = sign * (abs imm lsr 2) in
-                    let imm =
-                        if imm < 0 then
-                            imm + (1 lsl 26)
-                        else
-                            imm in
                     (335544320
-                        lor imm)
+                        lor (unsigned_shifted_from_offset 26 imm)
+                        lor (op lsl 31))
+               | BranchRegister
+                  (n, branch_type)
+               ->
+                    let op =
+                        match branch_type with
+                        | BranchType_JMP  -> 0
+                        | BranchType_CALL -> 1
+                        | BranchType_RET  -> 2
+                        | _ -> failwith "Unknown branch type when assembling BranchRegister"
+                    in
+                    let regn = Nat_big_num.to_int n in
+                    (3592355840
+                        lor (regn   lsl 5)
+                        lor (op     lsl 21))
+               | AddSubImmediate
+                 (d, n, datasize, sub_op, setflags, imm)
+               ->
+                    let op = if (Sail_values.bitU_to_bool sub_op) then 1 else 0 in
+                    let sflags = if (Sail_values.bitU_to_bool setflags) then 1 else 0 in
+                    let regd = Nat_big_num.to_int d in
+                    let regn = Nat_big_num.to_int n in
+                    let sf = (if (Nat_big_num.to_int datasize) = 64 then 1 else 0) in
+                    let imm = Nat_big_num.to_int (Sail_values.unsigned_big imm) in
+                    (285212672
+                        lor (sf     lsl 31)
+                        lor (op     lsl 30)
+                        lor (sflags lsl 29)
+                        lor (imm    lsl 10)
+                        lor (regn   lsl 5)
+                        lor (regd   lsl 0))
+               | AddSubExtendRegister
+                 (d, n, m, datasize, sub_op, setflags, extend_type, shift)
+               ->
+                    let regd = Nat_big_num.to_int d in
+                    let regn = Nat_big_num.to_int n in
+                    let regm = Nat_big_num.to_int m in
+                    let imm3 = Nat_big_num.to_int shift in
+                    let op = if (Sail_values.bitU_to_bool sub_op) then 1 else 0 in
+                    let sflags = if (Sail_values.bitU_to_bool setflags) then 1 else 0 in
+                    let opt =
+                        match extend_type with
+                            | ExtendType_UXTB -> 0
+                            | ExtendType_UXTH -> 1
+                            | ExtendType_UXTW -> 2
+                            | ExtendType_UXTX -> 3
+                            | ExtendType_SXTB -> 4
+                            | ExtendType_SXTH -> 5
+                            | ExtendType_SXTW -> 6
+                            | ExtendType_SXTX -> 7
+                    in
+                    let sf = (if (Nat_big_num.to_int datasize) = 64 then 1 else 0) in
+                    (186646528
+                        lor (sf     lsl 31)
+                        lor (op     lsl 30)
+                        lor (sflags lsl 29)
+                        lor (regm   lsl 16)
+                        lor (opt    lsl 13)
+                        lor (imm3   lsl 10)
+                        lor (regn   lsl 5)
+                        lor (regd   lsl 0))
+               | LogicalShiftedRegister
+                  (d, n, m, datasize, setflags, op, shift_type, shift_amount, invert)
+               ->
+                    let regd = Nat_big_num.to_int d in
+                    let regn = Nat_big_num.to_int n in
+                    let regm = Nat_big_num.to_int m in
+                    let imm6 = Nat_big_num.to_int shift_amount in
+                    let shift =
+                      match shift_type with
+                      | ShiftType_LSL -> 0
+                      | ShiftType_LSR -> 1
+                      | ShiftType_ASR -> 2
+                      | ShiftType_ROR -> 3
+                      in
+                    let bop =
+                      match op with
+                      | LogicalOp_AND -> 0
+                      | LogicalOp_ORR -> 1
+                      | LogicalOp_EOR -> 2
+                      in
+                    let sf = (if (Nat_big_num.to_int datasize) = 64 then 1 else 0) in
+                    (167772160
+                        lor regd
+                        lor (regn   lsl 5)
+                        lor (imm6   lsl 10)
+                        lor (regm   lsl 16)
+                        lor (shift  lsl 22)
+                        lor (bop    lsl 29)
+                        lor (sf     lsl 31))
                | Barrier3
                   (barrierOp,domain,types)
                ->

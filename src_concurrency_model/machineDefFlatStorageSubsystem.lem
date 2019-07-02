@@ -23,11 +23,7 @@ open import Pervasives
 open import Assert_extra
 
 open import Sail_impl_base
-(*
-open import MachineDefTypes
-open import MachineDefEvents
-open import MachineDefFragments
-open import MachineDefUtils *)
+open import Sail_values
 open import Params
 open import Events
 open import Fragments
@@ -377,10 +373,21 @@ let flat_flow_writes _params state addr =
     let fetch_buf = state.flat_ss_fetch_buf in
     List.filter (fun w -> not (write_overlaps_with_addr (addr, 4) w)) fetch_buf
 
+let cache_line_fp (addr : address) : footprint =
+    (* TODO: BS: make this read CTR_EL0 d/i min line *)
+    let cache_line_size : integer = 1*4 in
+    let addr : integer = integer_of_address addr in
+    let offs : integer = modulo addr cache_line_size in
+    let start : integer = addr - offs in
+    let fp : footprint = (address_of_integer start, natFromInteger cache_line_size) in
+    fp
+
 let flat_clear_icache addr ic =
     (* TODO: BS: is this right?  should we throw away all writes that overlap with the
      * footprint or just those whose write*slices overlap? *)
-    <| ic with ic_memory = List.filter (fun w -> not (write_slices_overlaps_with_addr (addr, 4) w)) ic.ic_memory |>
+    <| ic with ic_memory =
+        List.filter (fun w -> not (write_slices_overlaps_with_addr (cache_line_fp addr) w)) ic.ic_memory
+    |>
 
 let flat_clear_icaches params state addr =
     let icaches = state.flat_ss_icaches in

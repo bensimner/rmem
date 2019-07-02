@@ -132,7 +132,7 @@ type thread_params =
      thread_fetch_order: fetch_order;
 
      branch_targets: branch_targets_map;
-     thread_written_footprints: set footprint;
+     thread_modified_code_footprints: set footprint;
 
      p_par_pts_search : bool;
      p_fuel : maybe nat;
@@ -373,7 +373,7 @@ let default_model_params =
         p_fuel                         = Nothing;
 
         branch_targets                 = Map.empty;
-        thread_written_footprints      = Set.empty;
+        thread_modified_code_footprints      = Set.empty;
     |>
   in
 

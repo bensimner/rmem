@@ -505,8 +505,11 @@ let possible_mrs_for_read
          ^ "  write_slices=" ^ show write_slices ^ "\n")
   end
 
+let footprints_overlap (fp1 : footprint) (fp2 : footprint) : bool =
+    overlapping_slices (fp1,[complete_slice fp1]) (fp2,[complete_slice fp2])
+
 let write_overlaps_with_addr (fp : footprint) (w : write) =
-    overlapping_slices (w.w_addr,[complete_slice w.w_addr]) (fp,[complete_slice fp])
+    footprints_overlap w.w_addr fp
 
 let write_slices_overlaps_with_addr (fp : footprint) ((w,s) : write * slices) =
     overlapping_slices (w.w_addr,s) (fp,[complete_slice fp])

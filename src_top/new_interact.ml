@@ -454,7 +454,7 @@ let show_options interact_state : unit =
   SO.Concat [
     SO.strLine "Memory-writes";
     SO.line @@ SO.encoded @@ begin
-      (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_written_footprints
+      (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_modified_code_footprints
       |> Pp.pp_shared_memory interact_state.ppmode
       end
   ]
@@ -1077,10 +1077,10 @@ let update_bt_and_sm search_state interact_state : interact_state =
       in
       let (mw_union, _) =
           Params.union_and_diff_shared_memory
-            search_state.Runner.observed_memory_writes
-            model.t.thread_written_footprints
+            search_state.Runner.observed_modified_locations
+            model.t.thread_modified_code_footprints
       in
-      {model with t = {model.t with branch_targets = bt_union; thread_written_footprints = mw_union}}
+      {model with t = {model.t with branch_targets = bt_union; thread_modified_code_footprints = mw_union}}
   )
 
 let run_interactive_search mode interact_state breakpoints bounds targets filters handle_search_outcome : interact_state =
@@ -2418,7 +2418,7 @@ let print_observations interact_state search_state =
 
   (* This is the memory-writes as it was approximated before the search *)
   let memory_writes_output =
-    let memory_writes = (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_written_footprints in
+    let memory_writes = (ConcModel.model_params (List.hd interact_state.interact_nodes).system_state).t.thread_modified_code_footprints in
     (* SO.ifTrue (not (Pset.is_empty memory_writes)) @@ *)
       SO.verbose SO.Normal @@ fun () ->
         SO.strLine "Memory-writes=%s"

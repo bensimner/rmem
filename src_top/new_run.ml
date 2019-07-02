@@ -120,7 +120,7 @@ type search_state =
     observed_exceptions:       (trace * int) ExceptionMap.t;
 
     observed_branch_targets: Params.branch_targets_map;
-    observed_memory_writes: Sail_impl_base.footprint Pset.set;
+    observed_modified_locations: Sail_impl_base.footprint Pset.set;
     observed_shared_memory:  Sail_impl_base.footprint Pset.set;
 
     (*** statistics ***)
@@ -315,12 +315,12 @@ let update_observed_branch_targets_and_shared_memory search_state search_node : 
     else search_state.observed_shared_memory
   in
 
-  let observed_memory_writes =
+  let observed_modified_locations =
     if search_state.options.eager_mode.eager_fetch_unmodified then
       let (union, diff) =
         Params.union_and_diff_shared_memory
-          (ConcModel.written_footprints_of_state search_node.system_state)
-          search_state.observed_memory_writes
+          (ConcModel.modified_code_locations_of_state search_node.system_state)
+          search_state.observed_modified_locations
       in
       if not (Pset.is_empty diff) && SO.is_verbosity_at_least SO.ThrottledInformation then
         SO.strLine "%s found new memory write footprint(s): %s"
@@ -328,13 +328,13 @@ let update_observed_branch_targets_and_shared_memory search_state search_node : 
           (Pp.pp_shared_memory search_state.ppmode diff)
         |> Screen.show_message search_state.ppmode;
       union
-    else search_state.observed_memory_writes
+    else search_state.observed_modified_locations
   in
 
   { search_state with
     observed_branch_targets = observed_branch_targets;
     observed_shared_memory  = observed_shared_memory;
-    observed_memory_writes  = observed_memory_writes;
+    observed_modified_locations  = observed_modified_locations;
   }
 
 
@@ -1017,7 +1017,7 @@ let search_from_state
       observed_exceptions       = ExceptionMap.empty;
 
       observed_branch_targets = (ConcModel.model_params system_state).t.branch_targets;
-      observed_memory_writes = (ConcModel.model_params system_state).t.thread_written_footprints;
+      observed_modified_locations = (ConcModel.model_params system_state).t.thread_modified_code_footprints;
       observed_shared_memory  = options.eager_mode.em_shared_memory;
 
       (* statistics *)
@@ -1128,8 +1128,8 @@ let search_from_state
 
         let (mw_union, mw_diff) =
           Params.union_and_diff_shared_memory
-            search_state'.observed_memory_writes
-            initial_search_state.observed_memory_writes
+            search_state'.observed_modified_locations
+            initial_search_state.observed_modified_locations
         in
 
         if bt_diff = []
@@ -1163,7 +1163,7 @@ let search_from_state
               { model_params with
                 t = {model_params.t with
                       branch_targets = bt_union;
-                      thread_written_footprints=mw_union;
+                      thread_modified_code_footprints=mw_union;
                     }
               }
             in
@@ -1174,7 +1174,7 @@ let search_from_state
             search_nodes            = [];
             observed_branch_targets = bt_union;
             observed_shared_memory  = sm_union;
-            observed_memory_writes  = mw_union;
+            observed_modified_locations  = mw_union;
             options                 = options';
           }
           |> add_search_node system_state'
@@ -1204,8 +1204,8 @@ let search_from_state
 
             let (mw_union, mw_diff) =
               Params.union_and_diff_shared_memory
-                search_state'.observed_memory_writes
-                (!search_state).observed_memory_writes
+                search_state'.observed_modified_locations
+                (!search_state).observed_modified_locations
             in
 
             if bt_diff = []
@@ -1231,7 +1231,7 @@ let search_from_state
                   { model_params with
                     t = {model_params.t with
                             branch_targets = bt_union;
-                            thread_written_footprints = mw_union };
+                            thread_modified_code_footprints = mw_union };
                   }
                 in
                 ConcModel.set_model_params model_params' system_state
@@ -1242,7 +1242,7 @@ let search_from_state
                   search_nodes            = [];
                   observed_branch_targets = bt_union;
                   observed_shared_memory  = sm_union;
-                  observed_memory_writes  = mw_union;
+                  observed_modified_locations  = mw_union;
                   options                 = options';
                 }
                 |> add_search_node system_state'

@@ -763,7 +763,7 @@ let set_memory_writes
     |> Pset.from_list Sail_impl_base.footprintCompare
   in
 
-  {model with t = {model.t with thread_written_footprints = footprints}}
+  {model with t = {model.t with thread_modified_code_footprints = footprints}}
 
 let set_thread_fetch_limit (n : int) (m : model_params) : model_params =
     {m with

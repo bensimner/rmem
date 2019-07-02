@@ -282,7 +282,7 @@ let is_eager_relaxed_fetch_fetch_transition params : (trans 'ts 'ss -> bool) =
       let seen_loc =
         Set.any (fun fp ->
           overlapping_slices (fp,[complete_slice fp]) (addr_fp, [complete_slice addr_fp])
-        ) params.t.thread_written_footprints in
+        ) params.t.thread_modified_code_footprints in
       not seen_loc in
   function
   | T_trans thread_trans ->

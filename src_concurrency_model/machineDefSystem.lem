@@ -670,17 +670,28 @@ let shared_memory_of_state
             exists (fp' IN (rfps' union wfps')).
               non_empty_intersection wfp fp'}
 
-let written_footprints_of_state
+let modified_code_locations_of_state
     (state: system_state 'ts 'ss)
     : set footprint
   =
-  let tid_footprints =
+  let tid_write_footprints =
     Map.map
       (ts_memory_footprints state.t_model)
       state.thread_states
     $> Map.toSet
   in
-  {wfp  | forall ((tid, (_, wfps)) IN tid_footprints) (wfp IN wfps) | true}
+  let tid_instrs =
+    Map.map
+      (ts_instructions state.t_model)
+      state.thread_states
+    $> Map.toSet
+  in
+  let write_fps = {wfp  | forall ((tid, (_, wfps)) IN tid_write_footprints) (wfp IN wfps) | true} in
+  let code_locations = {(instr.program_loc,4) | forall ((tid,instrs) IN tid_instrs) (instr IN instrs) | true } in
+  let overlaps wfp =
+    exists (cfp IN code_locations).
+        footprints_overlap wfp cfp in
+  {wfp | forall (wfp IN write_fps) | overlaps wfp}
 
 (** Make a candidate execution *)
 
