@@ -471,6 +471,14 @@ let actually_SAIL_encode
                     (335544320
                         lor (unsigned_shifted_from_offset 26 imm)
                         lor (op lsl 31))
+               | BranchConditional
+                  (offset, cond)
+               ->
+                    let cond = Nat_big_num.to_int (Sail_values.unsigned_big cond) in
+                    let label = Nat_big_num.to_int (Sail_values.signed_big offset) in
+                    (1409286144
+                        lor cond
+                        lor ((unsigned_shifted_from_offset 19 label) lsl 5))
                | BranchRegister
                   (n, branch_type)
                ->
