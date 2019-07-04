@@ -2140,15 +2140,22 @@ let get_fetch_instruction_continuation params
   =
   fun f ->
     let i =
-        <| inst_context.iic_instance with
-            micro_op_state = MOS_fetch (Just f);
-            instruction =
-                match f with
-                | Fetched_FDO (FDO_success _ (Just op) _) -> Fetched op
-                | Fetched_Mem _ (FDO_success _ (Just op) _) -> Fetched op
-                | _ -> Fetch_error
-                end
-        |>
+        match f with
+        | Fetched_FDO FDO_unpredictable_fetch ->
+            <| inst_context.iic_instance with
+                micro_op_state = MOS_unpredictable
+            |>
+        | _ ->
+            <| inst_context.iic_instance with
+                micro_op_state = MOS_fetch (Just f);
+                instruction =
+                    match f with
+                    | Fetched_FDO (FDO_success _ (Just op) _) -> Fetched op
+                    | Fetched_Mem _ (FDO_success _ (Just op) _) -> Fetched op
+                    | _ -> Fetch_error
+                    end
+            |>
+        end
     in
         <|  state with
             instruction_tree = apply_tree_context inst_context.context (i,inst_context.subtree);
@@ -4027,6 +4034,7 @@ let enumerate_transitions_of_instruction
   guard (is_restricted --> forall (p MEM iic.active_prefix). p.finished) >>
 
   match iic.iic_instance.micro_op_state with
+  | MOS_unpredictable -> []
   | MOS_fetch Nothing  -> enumerate_fetch_transitions_of_instruction params i_sem s iic
   | MOS_fetch (Just _) -> enumerate_decode_transitions_of_instruction params i_sem s iic
   | MOS_wait_IC _ -> []

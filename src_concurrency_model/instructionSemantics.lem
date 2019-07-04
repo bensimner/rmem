@@ -67,6 +67,7 @@ type fetch_and_decode_outcome =
   | FDO_success of address * (maybe opcode) * instruction_ast
   | FDO_address_not_concrete
   | FDO_illegal_fetch_address
+  | FDO_unpredictable_fetch
   | FDO_decode_error of decode_error_t
 
 let decode_error_compare e1 e2 =

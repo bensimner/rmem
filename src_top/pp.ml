@@ -1448,6 +1448,7 @@ let pp_fdo ?(suppress_opcode=false) m fdo addr =
      "illegal fetch address"
   | FDO_decode_error de -> "decode error: " ^ pp_decode_error m de addr
   | FDO_address_not_concrete -> "decode error: address is not concrete"
+  | FDO_unpredictable_fetch -> "fetch error: unpredictable result"
 
 
 let pp_ss_only_label ?(graph=false) (m: Globals.ppmode) t =
@@ -2537,6 +2538,7 @@ let pp_requested_reads m subreads =
 let pp_micro_op_state_top indent ioid m mos =
   if not(m.pp_style = Globals.Ppstyle_screenshot) then
     match mos with
+    | MOS_unpredictable         -> "MOS_unpredictable"
     | MOS_fetch is              -> "MOS_fetch"
     | MOS_plain is              -> "MOS_plain"
     | MOS_wait_IC is            -> "MOS_wait_IC"
@@ -2549,6 +2551,7 @@ let pp_micro_op_state_top indent ioid m mos =
 
   else
     match mos with
+    | MOS_unpredictable         -> ""
     | MOS_fetch is              -> ""
     | MOS_plain is              -> ""
     | MOS_wait_IC is            -> ""
@@ -2598,6 +2601,7 @@ let pp_outcome_S indent m is =
 let pp_micro_op_state_body indent addr ioid subreads potential_writes m mos =
 (*  let indent = if not(m.pp_screenshot) then indent else indent^"  " in*)
   match mos with
+  | MOS_unpredictable  -> "unpredictable"
   | MOS_fetch None     -> "MOS-fetch Unfetched"
   | MOS_fetch (Some f) ->
       let fetched_type =

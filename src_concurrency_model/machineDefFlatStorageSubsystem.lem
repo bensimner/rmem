@@ -31,7 +31,11 @@ open import Utils
 open import UiTypes
 open import MachineDefUI
 open import MachineDefTypes
+open import MachineDefInstructionPredicates
+open import InstructionSemantics
 open MaybeMonad
+
+import ArmV8_embed_types
 
 let slice_of_write w = (w.w_addr, [complete_slice w.w_addr])
 
@@ -333,11 +337,45 @@ let icache_update params (icache) (w : (write * slices)) state =
             flat_ss_icaches = Map.insert icache.ic_tid icache' (state.flat_ss_icaches);
         |>
 
-let rec flat_try_fetch_relaxed params state tl =
+let rec _flat_try_fetch_relaxed params state tl =
   match params.flat_need_ic with
   | true -> flat_try_fetch_relaxed_from_icache params state tl
   | false -> flat_try_fetch_relaxed_from_buffer_only params state tl  (* TODO: impl ... *)
   end
+
+and flat_make_cbranch_fetch_from_pair params state tl (x, y) =
+  let cbranch = ArmV8_embed_types.BranchConditional (x, y) in
+  let addr = tl.tl_label.fr_addr in
+  let op = Nothing in  (* TODO: BS: re-construct new opcode from cbranch ... *)
+  let fdo = FDO_success addr op (AArch64_instr cbranch) in
+  (T_fetch <| tl with tl_suppl = Just (Fetched_FDO fdo) |>, Just (fun() -> state))
+
+and flat_try_fetch_relaxed params state tl =
+  let fetches = _flat_try_fetch_relaxed params state tl in
+  let fdo_from_fetch (T_fetch <| tl_suppl = Just (Fetched_Mem _ fdo) |>, _) = fdo in
+  let is_fdo_success fdo =
+    match fdo with
+    | FDO_success _ _ _ -> true
+    | _ -> false
+    end in
+  let ast_from_fdo (FDO_success _ _ ast) = ast in
+  let maybe_cbranch_from_ast = AArch64_split_maybe_conditional_branch in
+  let fdos = List.map fdo_from_fetch fetches in
+  let successful_fdos = List.filter is_fdo_success fdos in
+  let unsuccessful_fdos = List.filter (fun f -> not (is_fdo_success f)) fdos in
+  let asts = List.map ast_from_fdo successful_fdos in
+  let cbranches = List.mapMaybe maybe_cbranch_from_ast asts in
+  if List.length fetches = 1 || List.all is_AArch64_atomic_fetchable_opcode asts then
+      fetches
+  else if List.length cbranches = List.length fetches then
+    let conds = List.map fst cbranches in
+    let dests = List.map snd cbranches in
+    let combinations = product conds dests in
+    let make_fetch fdo =
+      (T_fetch (<| tl with tl_suppl = Just (Fetched_FDO fdo) |>), Just (fun() -> state)) in
+    List.map make_fetch unsuccessful_fdos ++ List.map (flat_make_cbranch_fetch_from_pair params state tl) combinations
+  else
+      [(T_fetch <| tl with tl_suppl = Just (Fetched_FDO FDO_unpredictable_fetch) |>, Just (fun() -> state))]
 
 and flat_try_fetch_relaxed_from_buffer_only params state tl =
   let addr = tl.tl_label.fr_addr in

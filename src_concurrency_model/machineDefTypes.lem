@@ -552,6 +552,7 @@ type micro_op_state =
   | MOS_AMO_lock            of (memory_value -> outcome_S)
   | MOS_AMO_unlock          of outcome_S
   | MOS_pending_exception   of exception_type
+  | MOS_unpredictable
 
 (* misaligned writes must be split into multiple subwrites *)
 type subwrites =
