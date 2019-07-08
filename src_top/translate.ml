@@ -342,6 +342,7 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
                 (function
                 | A.Instruction ins
                 | A.Label (_, A.Instruction ins)
+                | A.Label (_, A.Label (_, A.Instruction ins))
                     -> ins
                 | _ -> assert false)
                 prog
@@ -349,12 +350,13 @@ module Make (A: Arch_litmus.S with type V.Scalar.t = string) (Trans : Trans.Tran
             let labelmap =
               List.mapi
                 (fun i -> function
-                | A.Instruction _  -> None
-                | A.Label (lbl, _) -> Some (lbl, i * instr_size)
+                | A.Instruction _  -> []
+                | A.Label (lbl, A.Instruction _) -> [(lbl, i * instr_size)]
+                | A.Label (lbl1, A.Label (lbl2, A.Instruction _)) -> [(lbl1, i * instr_size); (lbl2, i * instr_size)]
                 | _ -> assert false)
                 prog
             in
-            let labelmap = Misc.option_map Misc.identity labelmap in
+            let labelmap = List.concat labelmap in
             let unlabelizep =
               List.mapi
                 (fun i ins ->
