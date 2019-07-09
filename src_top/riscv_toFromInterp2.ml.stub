@@ -5,8 +5,8 @@
 (*                                                                               *)
 (*  This file is:                                                                *)
 (*                                                                               *)
-(*  Copyright Shaked Flur, University of Cambridge 2016-2017                     *)
-(*  Copyright Jon French, University of Cambridge       2017                     *)
+(*  Copyright Shaked Flur, University of Cambridge       2017                    *)
+(*  Copyright Christopher Pulte, University of Cambridge 2017                    *)
 (*                                                                               *)
 (*  All rights reserved.                                                         *)
 (*                                                                               *)
@@ -15,7 +15,7 @@
 (*                                                                               *)
 (*===============================================================================*)
 
-val from_litmus_data: RunOptions.t -> string -> Litmus_test_file.data -> (InstructionSemantics.instruction_semantics_mode -> unit) option -> unit
-val from_ELF_data:    RunOptions.t -> string -> Elf_test_file.data    -> (InstructionSemantics.instruction_semantics_mode -> unit) option -> unit
-
-val from_file: RunOptions.t -> Types.filetype -> string -> unit
+let privilegeToInterpValue _ = failwith "stub"
+let privilegeFromInterpValue _ = failwith "stub"
+let astToInterpValue _ = failwith "stub"
+let astFromInterpValue _ = failwith "stub"
