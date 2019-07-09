@@ -56,7 +56,7 @@ type instruction_ast =
   | X86_instr of X86_embed_types.ast
   | Fetch_error
   | Unfetched
-  | Fetched of opcode
+  | Fetched of instruction_ast
 
 type decode_error_t =
   | Unsupported_instruction_error of opcode * instruction_ast

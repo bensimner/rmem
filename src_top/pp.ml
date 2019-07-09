@@ -825,14 +825,14 @@ let pp_opcode m (op:Sail_impl_base.opcode) =
 let pp_reg m r =
   Printing_functions.reg_name_to_string r
 
-let pp_instruction m
+let rec pp_instruction m
       (symbol_table: ((address * size) * string) list)
       (inst: instruction_ast)
       (program_loc: Sail_impl_base.address) =
   begin match inst with
   | Fetch_error -> "fetch error"
   | Unfetched -> "unknown"
-  | Fetched op -> sprintf "fetched %s" (pp_opcode m op)
+  | Fetched ast -> sprintf "fetched %s" (pp_instruction m symbol_table ast program_loc)
   | PPCGEN_instr _ ->
      let i = PPCGenTransSail.shallow_ast_to_herdtools_ast inst in
      PPCGenBase.pp_instruction (PPMode.Ascii) i

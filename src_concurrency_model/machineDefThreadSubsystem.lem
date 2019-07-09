@@ -2150,8 +2150,8 @@ let get_fetch_instruction_continuation params
                 micro_op_state = MOS_fetch (Just f);
                 instruction =
                     match f with
-                    | Fetched_FDO (FDO_success _ (Just op) _) -> Fetched op
-                    | Fetched_Mem _ (FDO_success _ (Just op) _) -> Fetched op
+                    | Fetched_FDO (FDO_success _ _ ast) -> Fetched ast
+                    | Fetched_Mem _ (FDO_success _ _ ast) -> Fetched ast
                     | _ -> Fetch_error
                     end
             |>
