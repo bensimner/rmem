@@ -2357,31 +2357,32 @@ let cache_maintenance_trans_dc
   guard (
         forall (iprev MEM iic.active_prefix).
           (is_AArch64_dc_wait_barrier iprev --> iprev.finished)
-  ) >>
-  (* all po-previous memory addresses are fully determined *)
-  guard (
-    forall_iprev_with_prefix iic.active_prefix $ fun iprev prev_active_prefix ->
-      fully_determined_address params prev_active_prefix iprev &&
-      (* to simplify the rest of the checks we also require that iprev
-      has made enough steps to guarantee all the read/write requests
-      are recorded in the instruction_instance state. *)
-      all_writes_reads_are_calculated params iprev
-  ) >>
-  (* wait for program-order previous loads to same addr to finish *)
-  guard (forall (iprev MEM iic.active_prefix).
-   forall ((iprev_rr, iprev_unsat_slices) MEM iprev.subreads.sr_unsat_slices).
-        (non_empty_intersection (addr, 4) iprev_rr.r_addr --> iprev.finished)
-  ) >>
-  (* wait for program-order previous stores to the same addr to propagate *)
-  guard (forall (iprev MEM iic.active_prefix).
-    let prev_unpropagated_writes =
-      iprev.subwrites.sw_potential_write_addresses
-      ++ iprev.subwrites.sw_potential_writes
-    in
+  )
+  (* ) >> *)
+  (* (1* all po-previous memory addresses are fully determined *1) *)
+  (* guard ( *)
+  (*   forall_iprev_with_prefix iic.active_prefix $ fun iprev prev_active_prefix -> *)
+  (*     fully_determined_address params prev_active_prefix iprev && *)
+  (*     (1* to simplify the rest of the checks we also require that iprev *)
+  (*     has made enough steps to guarantee all the read/write requests *)
+  (*     are recorded in the instruction_instance state. *1) *)
+  (*     all_writes_reads_are_calculated params iprev *)
+  (* ) >> *)
+  (* (1* wait for program-order previous loads to same addr to finish *1) *)
+  (* guard (forall (iprev MEM iic.active_prefix). *)
+  (*  forall ((iprev_rr, iprev_unsat_slices) MEM iprev.subreads.sr_unsat_slices). *)
+  (*       (non_empty_intersection (addr, 4) iprev_rr.r_addr --> iprev.finished) *)
+  (* ) >> *)
+  (* (1* wait for program-order previous stores to the same addr to propagate *1) *)
+  (* guard (forall (iprev MEM iic.active_prefix). *)
+  (*   let prev_unpropagated_writes = *)
+  (*     iprev.subwrites.sw_potential_write_addresses *)
+  (*     ++ iprev.subwrites.sw_potential_writes *)
+  (*   in *)
 
-    forall (prev_write MEM prev_unpropagated_writes).
-      not (non_empty_intersection (addr, 4) prev_write.w_addr)
-  ) >>
+  (*   forall (prev_write MEM prev_unpropagated_writes). *)
+  (*     not (non_empty_intersection (addr, 4) prev_write.w_addr) *)
+  (* ) >> *)
 
   let i = iic.iic_instance in
   let state' =
