@@ -49,7 +49,17 @@ let add_read_exclusive_write_slices state (read, writes_and_slices, se_ioids) =
   <| state with flat_ss_exclusive_reads = exclusive_reads |>
 
 
-let flat_write_memory params state write =
+let flat_ss_coherence params state =
+  let co =
+    let ordered w w' = non_empty_intersection w.w_addr w'.w_addr in
+    List.foldl
+      (fun order w -> relonAddToTheLeft w (ordered w) order)
+      relonEmpty
+      state.flat_ss_old_writes
+  in
+  Relation.transitiveClosure co.relon_rel
+
+let flat_flow_write_into_memory params state write =
   (* remove slices that will not be visible after adding the new write *)
   let old_mem =
     List.mapMaybe
@@ -88,15 +98,16 @@ let flat_write_memory params state write =
       flat_ss_old_writes = write :: state.flat_ss_old_writes;
   |>
 
-let flat_ss_coherence params state =
-  let co =
-    let ordered w w' = non_empty_intersection w.w_addr w'.w_addr in
-    List.foldl
-      (fun order w -> relonAddToTheLeft w (ordered w) order)
-      relonEmpty
-      state.flat_ss_old_writes
-  in
-  Relation.transitiveClosure co.relon_rel
+
+let flat_write_memory params state write =
+  match params.ss_fetch_type with
+  | Fetch_Atomic -> flat_flow_write_into_memory params state write
+  | Fetch_Relaxed p ->
+    match p.flat_need_dc with
+    | true -> <| state with flat_ss_fetch_buf = write :: state.flat_ss_fetch_buf |>
+    | false -> flat_flow_write_into_memory params state write
+    end
+  end
 
 
 let flat_propagate_write params state tl = 
@@ -122,7 +133,8 @@ let flat_satisfy_read params state tl =
   let (read, unsat_slices, old_write_slices, excl) = tl.tl_label in
   let addr = read.r_addr in
   let writes = state.flat_ss_memory_writes in
-  let new_write_slices = match match_writes addr unsat_slices writes [] with
+  let buf_writes = List.map write_with_complete_slice state.flat_ss_fetch_buf in
+  let new_write_slices = match match_writes addr unsat_slices (buf_writes ++ writes) [] with
     | ([], write_slices') -> write_slices'
     | _ -> failwith "read from uninitialized address"
   end in
@@ -407,10 +419,7 @@ let flat_try_fetch params state tl =
     | Fetch_Relaxed fp -> flat_try_fetch_relaxed fp state tl
     end
 
-let flat_flow_writes _params state addr =
-    let fetch_buf = state.flat_ss_fetch_buf in
-    List.filter (fun w -> not (write_overlaps_with_addr (addr, 4) w)) fetch_buf
-
+(* TODO: Move this to somewhere better ... *)
 let cache_line_fp (addr : address) : footprint =
     (* TODO: BS: make this read CTR_EL0 d/i min line *)
     let cache_line_size : integer = 1*4 in
@@ -432,7 +441,19 @@ let flat_clear_icaches params state addr =
     Map.map (flat_clear_icache addr) icaches
 
 let flat_propagate_dc params state cmr addr =
-  <| state with flat_ss_fetch_buf=flat_flow_writes params state addr |>
+  let fetch_buf = state.flat_ss_fetch_buf in
+  let overlapping = List.filter (write_overlaps_with_addr (addr, 4)) fetch_buf in
+  let newest_write_to_addr = List_extra.head overlapping in
+  let new_fetch_buf =
+    List.filter
+      (fun w -> not (write_overlaps_with_addr (addr, 4) w))
+      fetch_buf
+  in
+  (* remove all to that cacheline from buffer *)
+  let st' = <| state with flat_ss_fetch_buf=new_fetch_buf |> in
+  (* flow the latest into memory *)
+  flat_flow_write_into_memory params st' newest_write_to_addr
+
 
 let flat_propagate_ic params state cmr addr =
   let ic_writes = state.flat_ss_ic_writes in
