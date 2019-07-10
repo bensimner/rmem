@@ -771,6 +771,31 @@ let finish_action params state iic =
   $> make_old_instructions params
   $> make_thread_cont_res {} discarded_ioids
 
+(* Update an instruction (sub)tree to restart dcs to some address:
+ * TODO: when we get DC; po; (R|W)  ordering then this needs updating *)
+let handle_restart_dc fp it =
+  instruction_tree_map
+    (fun prefix i _ ->
+      match address_from_AArch64_dc i with
+      | Just addr ->
+          (* TODO: dc cache line overlap *)
+          if footprints_overlap fp (addr, 4) then
+            restart_instruction i
+          else
+            i
+      | Nothing -> i
+      end)
+  []
+  it
+
+
+(* can "finish" a DC only once it becomes non-restartable (see above) 
+ * currently we make this a strong requirement that all po-previous instructions
+ * are finished.
+ *)
+let flat_can_finish_dc params iic =
+  (forall (iprev MEM iic.active_prefix).
+    iprev.finished)
 
 let propagate_write_action
     (params:        thread_params)
@@ -802,7 +827,9 @@ let propagate_write_action
       $> restart_dependent_subtrees it
   in
 
-  let state = <| state with instruction_tree = apply_tree_context inst_context.context (i', it') |> in
+  let it'' = handle_restart_dc write.w_addr it' in
+
+  let state = <| state with instruction_tree = apply_tree_context inst_context.context (i', it'') |> in
 
   match state.thread_substate with
   | POP_thread thread_substate ->
@@ -1827,11 +1854,12 @@ let pop_satisfy_read_from_storage_action params
   in
 
   let (it', restarted_ioids) = restart_dependent_subtrees inst_context.subtree irestart_roots in
+  let it'' = handle_restart_dc request.r_addr it' in
   let pop_substate = get_pop_thread_substate state.thread_substate in
   let pop_substate' = pop_remove_restarted_reads_from_order pop_substate restarted_ioids in
 
   <| state with
-      instruction_tree = apply_tree_context inst_context.context (instruction', it');
+      instruction_tree = apply_tree_context inst_context.context (instruction', it'');
       thread_substate = POP_thread pop_substate';
   |>
   $> make_thread_cont_res restarted_ioids {}
@@ -2076,11 +2104,13 @@ let pop_satisfy_read_by_forwarding_action params
     $> restart_dependent_subtrees it
   in
 
+  let it'' = handle_restart_dc request.r_addr it' in
+
   let pop_substate = get_pop_thread_substate state.thread_substate in
   let pop_substate' = pop_remove_restarted_reads_from_order pop_substate restarted_ioids in
 
   <| state with
-      instruction_tree = apply_tree_context inst_context.context (i', it');
+      instruction_tree = apply_tree_context inst_context.context (i', it'');
       thread_substate  = POP_thread pop_substate';
   |>
   $> make_thread_cont_res restarted_ioids {}
@@ -2357,32 +2387,7 @@ let cache_maintenance_trans_dc
   guard (
         forall (iprev MEM iic.active_prefix).
           (is_AArch64_dc_wait_barrier iprev --> iprev.finished)
-  )
-  (* ) >> *)
-  (* (1* all po-previous memory addresses are fully determined *1) *)
-  (* guard ( *)
-  (*   forall_iprev_with_prefix iic.active_prefix $ fun iprev prev_active_prefix -> *)
-  (*     fully_determined_address params prev_active_prefix iprev && *)
-  (*     (1* to simplify the rest of the checks we also require that iprev *)
-  (*     has made enough steps to guarantee all the read/write requests *)
-  (*     are recorded in the instruction_instance state. *1) *)
-  (*     all_writes_reads_are_calculated params iprev *)
-  (* ) >> *)
-  (* (1* wait for program-order previous loads to same addr to finish *1) *)
-  (* guard (forall (iprev MEM iic.active_prefix). *)
-  (*  forall ((iprev_rr, iprev_unsat_slices) MEM iprev.subreads.sr_unsat_slices). *)
-  (*       (non_empty_intersection (addr, 4) iprev_rr.r_addr --> iprev.finished) *)
-  (* ) >> *)
-  (* (1* wait for program-order previous stores to the same addr to propagate *1) *)
-  (* guard (forall (iprev MEM iic.active_prefix). *)
-  (*   let prev_unpropagated_writes = *)
-  (*     iprev.subwrites.sw_potential_write_addresses *)
-  (*     ++ iprev.subwrites.sw_potential_writes *)
-  (*   in *)
-
-  (*   forall (prev_write MEM prev_unpropagated_writes). *)
-  (*     not (non_empty_intersection (addr, 4) prev_write.w_addr) *)
-  (* ) >> *)
+  ) >>
 
   let i = iic.iic_instance in
   let state' =
@@ -2669,6 +2674,8 @@ let handle_done_outcome
          | Relaxed_thread_model   -> true
          end) >>
 
+  guard (is_AArch64_dc_instr i --> flat_can_finish_dc params iic) >>
+
   if params.thread_isa_info.is_thread_start_instruction i.instruction then
     (* special case for thread creation pseudo-instruction *)
     guard (forall (iprev MEM iic.active_prefix). if is_pop_strong_memory_barrier iprev then iprev.finished else true) >>
@@ -2908,8 +2915,7 @@ let enumerate_flat_read_satisfy_from_memory_transitions
         <| i.subreads with sr_requested = (rr, unsat_slices) :: i.subreads.sr_requested |>
       in
       let i' = <| i with subreads = subreads' |> in
-      let iic' = <| iic with iic_instance = i' |> in
-      satisfy_read_action params state iic' rr mrss
+      satisfy_read_action params state iic rr mrss
     | Nothing ->
       read_unmapped_memory_action params state iic rr unsat_slices
     end

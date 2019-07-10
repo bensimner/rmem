@@ -1069,6 +1069,18 @@ let is_AArch64_ic_wait_barrier (instruction: instruction_instance) : bool =
   | IK_cache_op _  -> false
   end
 
+let address_from_AArch64_dc (instruction: instruction_instance) : maybe address =
+  match instruction.instruction_kind with
+  | IK_cache_op Cache_op_D_CVAU  ->
+    match instruction.reg_reads with
+    (* DC CVAU only reads 1 register -- it contains the address *)
+    | [(_, _, v)] ->
+        address_of_register_value v
+    | _ -> Nothing
+    end
+  | _ -> Nothing
+  end
+
 let is_AArch64_dc_wait_barrier (instruction: instruction_instance) : bool =
   match instruction.instruction_kind with
   | IK_barrier Barrier_DSB_LD      -> false
