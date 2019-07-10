@@ -514,9 +514,9 @@ let actually_SAIL_encode
         (n lsr low) land (lsl1 0 (up - low))
     in
     let v =
-    (match instr with
+      begin match instr with
       | AArch64_instr inst ->
-           (match inst with
+           begin match inst with
             (* MOV Xn,#IMM *)
            | MoveWide (d, datasize, imm, pos, MoveWideOp_Z) ->
                 let reg = Nat_big_num.to_int d in
@@ -751,13 +751,109 @@ let actually_SAIL_encode
                     lor regd
                     lor (immhi lsl 5)
                     lor (immlo lsl 29))
+
+           | LogicalImmediate (d,n,datasize,setflags,op,imm) ->
+              let datasize = Nat_big_num.to_int datasize in
+              let setflags = Sail_values.bitU_to_bool setflags in
+              let imm = Sail_values.unsigned_big imm in
+
+              let sf = if datasize = 64 then 1 else 0 in
+              let opc =
+                match (op, setflags) with
+                | (LogicalOp_AND, false) -> 0b00
+                | (LogicalOp_ORR, false) -> 0b01
+                | (LogicalOp_EOR, false) -> 0b10
+                | (LogicalOp_AND, true)  -> 0b11
+                | _ -> assert false
+              in
+              let (_N,imms,immr) =
+                match AArch64HGenBase.encodeBitMasks datasize imm with
+                | Some (_N,imms,immr) -> (_N,imms,immr)
+                | None -> assert false
+              in
+              let _Rn = Nat_big_num.to_int n in
+              let _Rd = Nat_big_num.to_int d in
+
+              (sf       lsl 31) lor
+              (opc      lsl 29) lor
+              (0b100100 lsl 23) lor
+              (_N       lsl 22) lor
+              (immr     lsl 16) lor
+              (imms     lsl 10) lor
+              (_Rn      lsl 5)  lor
+              _Rd
+
+           | ConditionalSelect (d,n,m,datasize,condition,else_inv,else_inc) ->
+              let datasize = Nat_big_num.to_int datasize in
+              let else_inv = Sail_values.bitU_to_bool else_inv in
+              let else_inc = Sail_values.bitU_to_bool else_inc in
+              let condition = Sail_values.unsigned_big condition in
+
+              let sf = if datasize = 64 then 1 else 0 in
+              let op = if else_inv then 1 else 0 in
+              let o2 = if else_inc then 1 else 0 in
+              let _cond = Nat_big_num.to_int condition in
+              let _Rm = Nat_big_num.to_int m in
+              let _Rn = Nat_big_num.to_int n in
+              let _Rd = Nat_big_num.to_int d in
+
+              (sf         lsl 31) lor
+              (op         lsl 30) lor
+              (0          lsl 29) lor
+              (0b11010100 lsl 21) lor
+              (_Rm        lsl 16) lor
+              (_cond      lsl 12) lor
+              (0          lsl 11) lor
+              (o2         lsl 10) lor
+              (_Rn        lsl 5)  lor
+              _Rd
+
+           | LoadStoreAcqExc (n,t,t2,s,acctype,excl,pair,memop,elsize,regsize,datasize) ->
+              let excl = Sail_values.bitU_to_bool excl in
+              let pair = Sail_values.bitU_to_bool pair in
+              let elsize = Nat_big_num.to_int elsize in
+
+              let size = elsize lsr 8 in
+              let o2 = if excl then 0 else 1 in
+              let _L =
+                match memop with
+                | MemOp_LOAD -> 1
+                | MemOp_STORE -> 0
+                | _ -> assert false
+              in
+              let o1 = if pair then 1 else 0 in
+              let o0 =
+                match acctype with
+                | AccType_ORDERED -> 1
+                | AccType_ATOMIC -> 0
+                | _ -> assert false
+              in
+
+              let _Rn = Nat_big_num.to_int n in
+              let _Rt = Nat_big_num.to_int t in
+              let _Rt2 = Nat_big_num.to_int t2 in
+              let _Rs = Nat_big_num.to_int s in
+
+              (size     lsl 30) lor
+              (0b001000 lsl 24) lor
+              (o2       lsl 23) lor
+              (_L       lsl 22) lor
+              (o1       lsl 21) lor
+              (_Rs      lsl 16) lor
+              (o0       lsl 15) lor
+              (_Rt2     lsl 10) lor
+              (_Rn      lsl 5)  lor
+              _Rt
+
            | ImplementationDefinedStopFetching -> 0
            | ImplementationDefinedThreadStart  -> 0
            | inst ->
                 let i' = (AArch64HGenTransSail.shallow_ast_to_herdtools_ast (AArch64_instr inst)) in
                 let p = AArch64HGenBase.pp_instruction (PPMode.Ascii) i' in
-                failwith ("instruction encoder: instruction not supported: " ^ p))
-      | _ -> failwith "instruction encoder: only ARM supported")
+                failwith ("instruction encoder: instruction not supported: " ^ p)
+           end
+      | _ -> failwith "instruction encoder: only ARM supported"
+    end
   in
       Sail_impl_base.memory_value_of_integer
         endianness
