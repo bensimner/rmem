@@ -813,7 +813,14 @@ let actually_SAIL_encode
               let pair = Sail_values.bitU_to_bool pair in
               let elsize = Nat_big_num.to_int elsize in
 
-              let size = elsize lsr 8 in
+              let size =
+                match elsize with
+                | 64 -> 3
+                | 32 -> 2
+                | 16 -> 1
+                | 8  -> 0
+                | _  -> assert false
+              in
               let o2 = if excl then 0 else 1 in
               let _L =
                 match memop with
