@@ -4402,6 +4402,7 @@ let machine_thread =
      ts_update_initial_register_state = machine_update_initial_register_state;
      ts_update_initial_fetch_address = machine_update_initial_fetch_address;
      ts_is_final_state = thread_is_final_state;
+     ts_return_address = fun ts -> ts.return_address;
      (* ts_make_ui_thread_state = make_ui_machine_thread_state; *)
  |>
 

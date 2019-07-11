@@ -1186,7 +1186,12 @@ let ts_branch_targets params tmodel state  =
     (fun acc _ i (T its) ->
       if exists (nia IN i.nias). nia = NIA_indirect_address ||
          (params.thread_fetch_order = Fetch_Unrestricted)  then
-        acc union {(i.program_loc, i'.program_loc) | forall ((i', _) MEM its) | true}
+          match its with
+          | [] ->
+              acc union {(i.program_loc, tmodel.ts_return_address state)}
+          | _ ->
+              acc union {(i.program_loc, i'.program_loc) | forall ((i', _) MEM its) | true}
+          end
       else acc)
     {}
     []

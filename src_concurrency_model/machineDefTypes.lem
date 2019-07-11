@@ -1423,6 +1423,8 @@ type threadSubsystem 'ts =
        thread_id -> (address -> fetch_and_decode_outcome) -> address ->
        registerdata -> list (reg_base_name * register_value) ->
        (reg_base_name -> register_value) -> maybe address -> list write -> 'ts;
+
+     ts_return_address : 'ts -> address;
   |>
 
 
