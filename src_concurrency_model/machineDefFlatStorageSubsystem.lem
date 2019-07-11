@@ -231,7 +231,9 @@ let flat_ss_initial_state params tids initial_writes =
 
 
 let flat_ss_thread_memory_value_of_footprint _params state _tid footprint =
-  let mrs' = ensure_just (mrs_from_writes footprint state.flat_ss_memory_writes)
+  let mem_writes = state.flat_ss_memory_writes in
+  let buf_writes = List.map write_with_complete_slice state.flat_ss_fetch_buf in
+  let mrs' = ensure_just (mrs_from_writes footprint (buf_writes ++ mem_writes))
                ("flat_ss_thread_memory_value_of_footprint " ^ show footprint) in
   mrs'.mrs_value
 
