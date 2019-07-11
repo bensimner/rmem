@@ -4123,7 +4123,8 @@ let potential_next_addresses_of_instruction_relaxed
         let branch_targets = Map.findWithDefault state.thread Map.empty params.branch_targets in
         let addrs = Map.findWithDefault iic.iic_instance.program_loc Set.empty branch_targets in
         let succ = successor_fetch_address iic.iic_instance in
-        {succ} union addrs
+        if Set.null addrs then {succ}
+        else addrs
     | _ ->
         potential_next_addresses_of_instruction params state iic
     end
